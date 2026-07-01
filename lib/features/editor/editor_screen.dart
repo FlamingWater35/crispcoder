@@ -538,6 +538,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         !audioBitrateOptions.contains(_originalAudioBitrate)) {
       audioBitrateOptions.add(_originalAudioBitrate!);
     }
+    // Sort descending so higher bitrates appear at the top
+    audioBitrateOptions.sort((a, b) => b.compareTo(a));
 
     return [
       DropdownButtonFormField<AudioCodec>(
