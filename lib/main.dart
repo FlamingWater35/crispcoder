@@ -32,11 +32,12 @@ final loggerProvider = Provider<Logger>((ref) {
       methodCount: 0,
       errorMethodCount: 6,
       lineLength: 100,
-      colors: true,
+      colors: false, // Disable ANSI colors for clean console and UI output
       printEmojis: false,
       dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
     ),
-    output: InAppLogOutput(),
+    // Send logs to both the standard console and the in-app UI
+    output: MultiOutput([ConsoleOutput(), InAppLogOutput()]),
   );
 });
 

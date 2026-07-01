@@ -8,8 +8,17 @@ class LogsScreen extends StatefulWidget {
   static final ValueNotifier<int> _notifier = ValueNotifier<int>(0);
 
   /// Append a log line; called by the logger's output sink at app level.
+  /// Strips ANSI codes, box-drawing characters, and extra spaces for readability.
   static void push(String line) {
-    _buffer.add(line);
+    final cleanLine = line
+        .replaceAll(RegExp(r'\x1B\[[0-9;]*[a-zA-Z]'), '') // ANSI codes
+        .replaceAll(RegExp(r'[┌┐└┘│─]'), '') // Box drawing chars
+        .replaceAll(RegExp(r'\s{2,}'), ' ') // Collapse spaces
+        .trim();
+
+    if (cleanLine.isEmpty) return;
+
+    _buffer.add(cleanLine);
     if (_buffer.length > 500) _buffer.removeRange(0, _buffer.length - 500);
     _notifier.value = _buffer.length; // Trigger UI rebuild
   }
