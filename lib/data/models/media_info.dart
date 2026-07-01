@@ -8,6 +8,7 @@ class MediaInfo {
   final String? audioCodec;
   final double? frameRate;
   final int? bitrateBitsPerSec;
+  final int? audioBitrateBitsPerSec; // Added for audio bitrate matching
   final String? container;
 
   const MediaInfo({
@@ -19,6 +20,7 @@ class MediaInfo {
     this.audioCodec,
     this.frameRate,
     this.bitrateBitsPerSec,
+    this.audioBitrateBitsPerSec,
     this.container,
   });
 

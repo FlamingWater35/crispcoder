@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "CrispCoder (Debug)",
+      "request": "launch",
+      "type": "dart"
+    },
+    {
+      "name": "CrispCoder (Release)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "release"
+    }
+  ]
+}

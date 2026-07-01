@@ -53,6 +53,7 @@ class MediaProbeService {
         audioCodec: audio?.getCodec(),
         frameRate: double.tryParse(video?.getAverageFrameRate() ?? ''),
         bitrateBitsPerSec: int.tryParse(info.getBitrate() ?? ''),
+        audioBitrateBitsPerSec: int.tryParse(audio?.getBitrate() ?? ''),
         container: info.getFormat(),
       );
     } catch (e, st) {

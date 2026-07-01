@@ -1,5 +1,7 @@
 import 'package:hive_ce/hive_ce.dart';
 
+import 'transcode_preset.dart';
+
 /// Lifecycle states for an encode task. Persisted for crash recovery.
 enum EncodeStatus { pending, running, paused, completed, failed, cancelled }
 
@@ -9,7 +11,7 @@ class EncodeTask {
   final String sourcePath;
   final String? sourceName;
   final String outputPath;
-  final String presetId;
+  final TranscodePreset preset; // Embedded preset for custom configurations
   final DateTime createdAt;
   final DateTime? startedAt;
   final DateTime? finishedAt;
@@ -22,7 +24,7 @@ class EncodeTask {
     required this.sourcePath,
     this.sourceName,
     required this.outputPath,
-    required this.presetId,
+    required this.preset,
     required this.createdAt,
     this.startedAt,
     this.finishedAt,
@@ -36,7 +38,7 @@ class EncodeTask {
     String? sourcePath,
     String? sourceName,
     String? outputPath,
-    String? presetId,
+    TranscodePreset? preset,
     DateTime? createdAt,
     DateTime? startedAt,
     DateTime? finishedAt,
@@ -49,7 +51,7 @@ class EncodeTask {
       sourcePath: sourcePath ?? this.sourcePath,
       sourceName: sourceName ?? this.sourceName,
       outputPath: outputPath ?? this.outputPath,
-      presetId: presetId ?? this.presetId,
+      preset: preset ?? this.preset,
       createdAt: createdAt ?? this.createdAt,
       startedAt: startedAt ?? this.startedAt,
       finishedAt: finishedAt ?? this.finishedAt,
@@ -71,7 +73,7 @@ class EncodeTaskAdapter extends TypeAdapter<EncodeTask> {
       sourcePath: r.readString(),
       sourceName: r.readByte() == 1 ? r.readString() : null,
       outputPath: r.readString(),
-      presetId: r.readString(),
+      preset: r.read() as TranscodePreset,
       createdAt: DateTime.fromMillisecondsSinceEpoch(r.readInt()),
       startedAt: r.readByte() == 1
           ? DateTime.fromMillisecondsSinceEpoch(r.readInt())
@@ -96,7 +98,7 @@ class EncodeTaskAdapter extends TypeAdapter<EncodeTask> {
       w.writeString(t.sourceName!);
     }
     w.writeString(t.outputPath);
-    w.writeString(t.presetId);
+    w.write(t.preset); // Hive resolves the adapter automatically
     w.writeInt(t.createdAt.millisecondsSinceEpoch);
     if (t.startedAt == null) {
       w.writeByte(0);

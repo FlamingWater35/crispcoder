@@ -11,7 +11,6 @@ import '../data/services/gallery_service.dart';
 import '../data/services/transcode_service.dart';
 import 'active_encode_provider.dart';
 import 'device_capability_provider.dart';
-import 'preset_provider.dart';
 
 /// Queue state + orchestration of the active encode.
 /// Each mutation persists to Hive so the queue survives crashes.
@@ -69,12 +68,7 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
       return;
     }
 
-    final preset = ref.read(presetProvider.notifier).byId(next.presetId);
-    if (preset == null) {
-      await remove(next.id);
-      return;
-    }
-
+    final preset = next.preset; // Use embedded preset directly
     final cap = await ref.read(deviceCapabilityProvider.future);
     final svc = ref.read(transcodeServiceProvider);
 
