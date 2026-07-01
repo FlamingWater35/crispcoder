@@ -1,3 +1,18 @@
+/// Lightweight representation of a subtitle stream.
+class SubtitleTrack {
+  final int index; // Absolute stream index (e.g., 0, 1, 2)
+  final String? language;
+  final String? codec;
+
+  const SubtitleTrack({required this.index, this.language, this.codec});
+
+  String get label {
+    final lang = language ?? 'Unknown';
+    final cod = codec ?? 'sub';
+    return 'Track $index ($lang, $cod)';
+  }
+}
+
 /// Lightweight probed metadata for a source media file.
 class MediaInfo {
   final String path;
@@ -8,8 +23,9 @@ class MediaInfo {
   final String? audioCodec;
   final double? frameRate;
   final int? bitrateBitsPerSec;
-  final int? audioBitrateBitsPerSec; // Added for audio bitrate matching
+  final int? audioBitrateBitsPerSec;
   final String? container;
+  final List<SubtitleTrack> subtitleTracks;
 
   const MediaInfo({
     required this.path,
@@ -22,6 +38,7 @@ class MediaInfo {
     this.bitrateBitsPerSec,
     this.audioBitrateBitsPerSec,
     this.container,
+    this.subtitleTracks = const [],
   });
 
   String get resolutionLabel {

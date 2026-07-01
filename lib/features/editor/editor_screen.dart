@@ -42,8 +42,21 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   ContainerFormat _container = ContainerFormat.mp4;
   bool _faststart = true;
 
+  // Editing State
+  bool _removeAudio = false;
+  int? _burnSubtitleIndex;
+  final _startController = TextEditingController();
+  final _endController = TextEditingController();
+
   bool get _isVideoCopy => _videoCodec == VideoCodec.copy;
   bool get _isAudioCopy => _audioCodec == AudioCodec.copy;
+
+  @override
+  void dispose() {
+    _startController.dispose();
+    _endController.dispose();
+    super.dispose();
+  }
 
   // Helpers to identify original source values for dynamic UI labeling
   String get _originalRes {
@@ -60,10 +73,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   ContainerFormat _mapContainer(String? format) {
     if (format == null) return ContainerFormat.mp4;
-    if (format.contains('mp4') || format.contains('mov'))
+    if (format.contains('mp4') || format.contains('mov')) {
       return ContainerFormat.mp4;
-    if (format.contains('matroska') || format.contains('mkv'))
+    }
+    if (format.contains('matroska') || format.contains('mkv')) {
       return ContainerFormat.mkv;
+    }
     if (format.contains('webm')) return ContainerFormat.webm;
     return ContainerFormat.mp4;
   }
@@ -87,6 +102,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _container = _mapContainer(_mediaInfo!.container);
     _useCrf = true;
     _crf = 23;
+
+    // Reset editing state
+    _removeAudio = false;
+    _burnSubtitleIndex = null;
+    _startController.clear();
+    _endController.clear();
   }
 
   /// Applies a selected preset's properties to the state
@@ -106,6 +127,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         : (_originalAudioBitrate ?? 160);
     _container = preset.container;
     _faststart = preset.faststart;
+
+    // Apply editing state from preset
+    _removeAudio = preset.removeAudio;
+    _burnSubtitleIndex = preset.burnSubtitleIndex;
+    _startController.text = preset.startTime ?? '';
+    _endController.text = preset.endTime ?? '';
   }
 
   @override
@@ -213,6 +240,62 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             ),
             const Divider(height: 32),
 
+            // --- Editing & Subtitles ---
+            Text(
+              'Editing & Subtitles',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              title: const Text('Remove Audio'),
+              value: _removeAudio,
+              onChanged: (v) => setState(() => _removeAudio = v),
+              contentPadding: EdgeInsets.zero,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _startController,
+                    decoration: const InputDecoration(
+                      labelText: 'Start Time',
+                      hintText: '00:00:00',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _endController,
+                    decoration: const InputDecoration(
+                      labelText: 'End Time',
+                      hintText: '00:00:00',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int?>(
+              decoration: const InputDecoration(
+                labelText: 'Hardcode Subtitles (Burn-in)',
+              ),
+              initialValue: _burnSubtitleIndex,
+              items: [
+                const DropdownMenuItem(value: null, child: Text('None')),
+                for (final sub
+                    in _mediaInfo?.subtitleTracks ?? <SubtitleTrack>[])
+                  DropdownMenuItem(value: sub.index, child: Text(sub.label)),
+              ],
+              onChanged: (v) => setState(() => _burnSubtitleIndex = v),
+            ),
+
+            const Divider(height: 32),
+
+            // --- Video Settings ---
             Text(
               'Video Settings',
               style: Theme.of(context).textTheme.titleMedium,
@@ -315,6 +398,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             ],
             const Divider(height: 32),
 
+            // --- Audio Settings ---
             Text(
               'Audio Settings',
               style: Theme.of(context).textTheme.titleMedium,
@@ -336,7 +420,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               }).toList(),
               onChanged: (v) => setState(() => _audioCodec = v!),
             ),
-            if (!_isAudioCopy) ...[
+            if (!_isAudioCopy && !_removeAudio) ...[
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
                 decoration: const InputDecoration(labelText: 'Audio Bitrate'),
@@ -353,6 +437,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             ],
             const Divider(height: 32),
 
+            // --- Container Settings ---
             Text(
               'Container Settings',
               style: Theme.of(context).textTheme.titleMedium,
@@ -460,12 +545,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       resolution: _isVideoCopy ? null : _resolution,
       framerate: _isVideoCopy ? null : _framerate,
       audioCodec: _audioCodec,
-      audioBitrate: _isAudioCopy ? 0 : _audioBitrate,
+      audioBitrate: _isAudioCopy || _removeAudio ? 0 : _audioBitrate,
       container: _container,
       encoderPref: _encoderPref,
       faststart: _faststart,
       twoPass: false,
       isBuiltIn: false,
+      removeAudio: _removeAudio,
+      burnSubtitleIndex: _burnSubtitleIndex,
+      startTime: _startController.text.isEmpty ? null : _startController.text,
+      endTime: _endController.text.isEmpty ? null : _endController.text,
     );
 
     final baseName = PathHelpers.sanitizeFileName(
@@ -491,7 +580,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     await ref.read(queueProvider.notifier).enqueue(task);
 
     if (mounted) {
-      // Simply pop back to the previous screen (the queue)
       Navigator.of(context).pop();
     }
   }

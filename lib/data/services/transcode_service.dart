@@ -42,6 +42,14 @@ class TranscodeService {
   Stream<EncodeProgress> get progressStream => _progressController.stream;
   bool get isRunning => _active != null;
 
+  /// Escapes file paths for safe usage inside FFmpeg filter graphs
+  String _escapeFilterPath(String path) {
+    return path
+        .replaceAll('\\', '\\\\')
+        .replaceAll(':', '\\:')
+        .replaceAll("'", "\\'");
+  }
+
   /// Resolves the actual FFmpeg video encoder name based on user preference
   /// and device capability. Falls back HW → SW on mismatch.
   String _resolveVideoEncoder(TranscodePreset preset, DeviceCapability cap) {
@@ -51,19 +59,13 @@ class TranscodeService {
 
     switch (preset.videoCodec) {
       case VideoCodec.h264:
-        if (wantsHw && cap.supportsH264Hw) {
-          return 'h264_mediacodec';
-        }
+        if (wantsHw && cap.supportsH264Hw) return 'h264_mediacodec';
         return 'libx264';
       case VideoCodec.hevc:
-        if (wantsHw && cap.supportsHevcHw) {
-          return 'hevc_mediacodec';
-        }
+        if (wantsHw && cap.supportsHevcHw) return 'hevc_mediacodec';
         return 'libx265';
       case VideoCodec.av1:
-        if (wantsHw && cap.supportsAv1Hw) {
-          return 'av1_mediacodec';
-        }
+        if (wantsHw && cap.supportsAv1Hw) return 'av1_mediacodec';
         return 'libsvtav1';
       case VideoCodec.copy:
         return 'copy';
@@ -88,8 +90,20 @@ class TranscodeService {
     required String passLogPrefix,
     required bool isPassOne,
   }) {
-    final args = <String>['-y', '-i', task.sourcePath];
+    final args = <String>[];
 
+    // Trimming: Seek before input for performance, but requires re-encoding
+    if (preset.startTime != null && preset.startTime!.isNotEmpty) {
+      args.addAll(['-ss', preset.startTime!]);
+    }
+
+    args.addAll(['-y', '-i', task.sourcePath]);
+
+    if (preset.endTime != null && preset.endTime!.isNotEmpty) {
+      args.addAll(['-to', preset.endTime!]);
+    }
+
+    // Filters: scale, fps, subtitles, custom chain
     final filters = <String>[];
     if (preset.resolution != null) {
       final w = preset.resolution!.split('x').first;
@@ -97,6 +111,10 @@ class TranscodeService {
     }
     if (preset.framerate != null) {
       filters.add('fps=${preset.framerate}');
+    }
+    if (preset.burnSubtitleIndex != null) {
+      final escapedPath = _escapeFilterPath(task.sourcePath);
+      filters.add("subtitles='$escapedPath':si=${preset.burnSubtitleIndex}");
     }
     if (preset.filterChain != null && preset.filterChain!.isNotEmpty) {
       filters.add(preset.filterChain!);
@@ -139,12 +157,16 @@ class TranscodeService {
     }
 
     if (!isPassOne) {
-      args.addAll([
-        '-c:a',
-        _resolveAudioEncoder(preset.audioCodec),
-        '-b:a',
-        '${preset.audioBitrate}k',
-      ]);
+      if (preset.removeAudio) {
+        args.addAll(['-an']);
+      } else {
+        args.addAll([
+          '-c:a',
+          _resolveAudioEncoder(preset.audioCodec),
+          '-b:a',
+          '${preset.audioBitrate}k',
+        ]);
+      }
       if (preset.faststart && preset.container == ContainerFormat.mp4) {
         args.addAll(['-movflags', '+faststart']);
       }
@@ -156,9 +178,7 @@ class TranscodeService {
 
   /// Rough CRF → target bitrate (bps) for HW fallback. Approximation only.
   int? _crfToBitrate(int? crf, double durationSeconds) {
-    if (crf == null) {
-      return null;
-    }
+    if (crf == null) return null;
     final base = 8000000;
     final factor = (1 - (crf - 18) * 0.12).clamp(0.15, 1.5);
     return (base * factor).toInt();
@@ -278,11 +298,8 @@ class TranscodeService {
   /// Cancels the active session. Resolves when FFmpeg has stopped.
   Future<void> cancel() async {
     final a = _active;
-    // Clear immediately so isRunning is false and new tasks can queue
     _active = null;
-    if (a == null) {
-      return;
-    }
+    if (a == null) return;
     try {
       await FFmpegKit.cancel(a.session.getSessionId());
     } catch (_) {

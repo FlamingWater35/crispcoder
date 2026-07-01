@@ -31,6 +31,13 @@ class TranscodePreset {
   final bool twoPass;
   final bool isBuiltIn;
 
+  // New Editing Fields
+  final bool removeAudio;
+  final int?
+  burnSubtitleIndex; // Absolute stream index (e.g., 2 for Stream #0:2)
+  final String? startTime; // e.g., "00:01:30"
+  final String? endTime; // e.g., "00:05:00"
+
   const TranscodePreset({
     required this.id,
     required this.name,
@@ -48,6 +55,10 @@ class TranscodePreset {
     this.faststart = true,
     this.twoPass = false,
     this.isBuiltIn = false,
+    this.removeAudio = false,
+    this.burnSubtitleIndex,
+    this.startTime,
+    this.endTime,
   });
 
   TranscodePreset copyWith({
@@ -67,6 +78,10 @@ class TranscodePreset {
     bool? faststart,
     bool? twoPass,
     bool? isBuiltIn,
+    bool? removeAudio,
+    int? burnSubtitleIndex,
+    String? startTime,
+    String? endTime,
   }) {
     return TranscodePreset(
       id: id ?? this.id,
@@ -85,6 +100,10 @@ class TranscodePreset {
       faststart: faststart ?? this.faststart,
       twoPass: twoPass ?? this.twoPass,
       isBuiltIn: isBuiltIn ?? this.isBuiltIn,
+      removeAudio: removeAudio ?? this.removeAudio,
+      burnSubtitleIndex: burnSubtitleIndex ?? this.burnSubtitleIndex,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
     );
   }
 
@@ -119,6 +138,10 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       faststart: r.readBool(),
       twoPass: r.readBool(),
       isBuiltIn: r.readBool(),
+      removeAudio: r.readBool(),
+      burnSubtitleIndex: r.readByte() == 1 ? r.readInt() : null,
+      startTime: r.readByte() == 1 ? r.readString() : null,
+      endTime: r.readByte() == 1 ? r.readString() : null,
     );
   }
 
@@ -140,6 +163,10 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
     w.writeBool(p.faststart);
     w.writeBool(p.twoPass);
     w.writeBool(p.isBuiltIn);
+    w.writeBool(p.removeAudio);
+    _writeNullableInt(w, p.burnSubtitleIndex);
+    _writeNullableString(w, p.startTime);
+    _writeNullableString(w, p.endTime);
   }
 
   static void _writeNullableInt(BinaryWriter w, int? v) {

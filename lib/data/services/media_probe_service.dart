@@ -26,14 +26,27 @@ class MediaProbeService {
       final streams = info.getStreams();
       StreamInformation? video;
       StreamInformation? audio;
+      final subtitles = <SubtitleTrack>[];
 
-      // Safely parse streams without instantiating abstract classes or triggering null-aware warnings
       for (final s in streams) {
-        if (video == null && s.getType() == 'video') {
+        final type = s.getType();
+        if (video == null && type == 'video') {
           video = s;
-        }
-        if (audio == null && s.getType() == 'audio') {
+        } else if (audio == null && type == 'audio') {
           audio = s;
+        } else if (type == 'subtitle') {
+          // Extract language from the stream properties map safely
+          final props = s.getAllProperties();
+          final tags = props?['tags'];
+          final lang = tags is Map ? tags['language']?.toString() : null;
+
+          subtitles.add(
+            SubtitleTrack(
+              index: int.tryParse(s.getIndex()?.toString() ?? '') ?? -1,
+              language: lang,
+              codec: s.getCodec(),
+            ),
+          );
         }
       }
       // Fallback to first stream if specific type not found
@@ -52,10 +65,12 @@ class MediaProbeService {
         height: int.tryParse(video?.getHeight()?.toString() ?? ''),
         videoCodec: video?.getCodec(),
         audioCodec: audio?.getCodec(),
+        // Use the robust framerate parser
         frameRate: FormatParsers.parseFramerate(video?.getAverageFrameRate()),
         bitrateBitsPerSec: int.tryParse(info.getBitrate() ?? ''),
         audioBitrateBitsPerSec: int.tryParse(audio?.getBitrate() ?? ''),
         container: info.getFormat(),
+        subtitleTracks: subtitles,
       );
     } catch (e, st) {
       log.e('Probe failed for $path', error: e, stackTrace: st);
