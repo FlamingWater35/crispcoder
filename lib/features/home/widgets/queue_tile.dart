@@ -79,11 +79,17 @@ class _QueueTileState extends ConsumerState<QueueTile> {
     final theme = Theme.of(context);
     final task = widget.task;
     final activeProgress = ref.watch(activeEncodeProvider);
+
+    // Match active progress only if it belongs to this running task
     final progress =
         (task.status == EncodeStatus.running &&
             activeProgress?.taskId == task.id)
         ? activeProgress
         : null;
+
+    final isRunning = task.status == EncodeStatus.running;
+    // If running but no progress stats yet, FFmpeg is still initializing
+    final isStarting = isRunning && progress == null;
 
     // Only allow expansion if the task completed successfully
     final canExpand = task.status == EncodeStatus.completed;
@@ -111,7 +117,14 @@ class _QueueTileState extends ConsumerState<QueueTile> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (widget.onCancel != null)
+                  // Show loading spinner if preparing, otherwise show cancel button
+                  if (isStarting)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  else if (widget.onCancel != null)
                     IconButton(
                       tooltip: 'Cancel',
                       icon: const Icon(Icons.stop_circle_outlined),
@@ -143,6 +156,19 @@ class _QueueTileState extends ConsumerState<QueueTile> {
                     _Meta(label: 'ETA ${progress.formattedEta}'),
                     _Meta(label: progress.formattedBitrate),
                   ],
+                ),
+              ] else if (isStarting) ...[
+                const SizedBox(height: 8),
+                // Indicator that FFmpeg is spinning up before stats arrive
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Starting the process...',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
                 ),
               ] else if (task.status == EncodeStatus.failed) ...[
                 const SizedBox(height: 8),
