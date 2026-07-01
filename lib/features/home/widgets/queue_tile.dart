@@ -33,14 +33,23 @@ class _QueueTileState extends ConsumerState<QueueTile> {
         ? task.finishedAt!.difference(task.startedAt!)
         : Duration.zero;
 
+    // Use sourceName to avoid showing long cache file_picker paths
+    final sourceDisplay = task.sourceName ?? task.sourcePath;
+
+    // If output path is in the cache directory, it means it was moved to the gallery
+    final isOutputInCache = task.outputPath.contains('/cache/');
+    final outputDisplay = isOutputInCache
+        ? 'Saved to Device Gallery'
+        : task.outputPath;
+
     return Padding(
       padding: const EdgeInsets.only(top: 12.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _DetailRow(label: 'Source', value: task.sourcePath),
+          _DetailRow(label: 'Source', value: sourceDisplay),
           const SizedBox(height: 4),
-          _DetailRow(label: 'Output', value: task.outputPath),
+          _DetailRow(label: 'Output', value: outputDisplay),
           const SizedBox(height: 4),
           _DetailRow(
             label: 'Processed',
