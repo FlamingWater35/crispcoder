@@ -67,6 +67,9 @@ dependencies:
   # UI & Feedback
   awesome_snackbar_content: ^0.1.3
 
+  # Notifications
+  flutter_local_notifications: ^17.1.2
+
   # Misc
   collection: ^1.18.0
 

@@ -10,6 +10,8 @@ import '../data/repositories/history_repository.dart';
 import '../data/repositories/queue_repository.dart';
 import '../data/services/foreground_service_wrapper.dart';
 import '../data/services/gallery_service.dart';
+import '../data/services/notification_service.dart';
+import '../data/services/permission_service.dart';
 import '../data/services/transcode_service.dart';
 import 'active_encode_provider.dart';
 import 'device_capability_provider.dart';
@@ -25,8 +27,16 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
   List<EncodeTask> build() {
     ref.listen<EncodeProgress?>(activeEncodeProvider, (_, p) {
       if (p != null) {
+        // Update Foreground Service Text
         ForegroundServiceWrapper.instance.updateText(
-          '${p.formattedPercent} • ${p.formattedSpeed} • ETA ${p.formattedEta}',
+          'Progress: ${p.formattedPercent} • ${p.formattedSpeed} • ETA ${p.formattedEta}',
+        );
+
+        // Update Local Notification Progress Bar
+        NotificationService.instance.showProgress(
+          percent: p.percent.round(),
+          content:
+              '${p.formattedPercent} • ${p.formattedSpeed} • ETA ${p.formattedEta}',
         );
       }
     });
@@ -75,7 +85,15 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
       if (next == null) {
         await WakelockPlus.disable();
         await ForegroundServiceWrapper.instance.stop();
+        await NotificationService.instance.cancelProgress();
         return;
+      }
+
+      // Attempt to request notification permission silently for progress updates
+      try {
+        await ref.read(permissionServiceProvider).requireNotifications();
+      } catch (_) {
+        // Ignore if denied, encoding will still proceed
       }
 
       runningTask = next.copyWith(
@@ -89,6 +107,10 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
       await ForegroundServiceWrapper.instance.start(
         title: 'Transcoding: ${next.sourceName ?? 'video'}',
         text: 'Starting…',
+      );
+      await NotificationService.instance.showProgress(
+        percent: 0,
+        content: 'Starting…',
       );
 
       final session = await ref
@@ -109,6 +131,12 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
       await HistoryRepository.instance.add(finished);
 
       await ref.read(galleryServiceProvider).saveToGallery(finished.outputPath);
+
+      // Send completion notification
+      await NotificationService.instance.cancelProgress();
+      await NotificationService.instance.showCompleted(
+        next.sourceName ?? 'Video',
+      );
     } on EncodeCancelledException {
       // If the task was cancelled, check if it still exists in the queue.
       // If it does, mark it as cancelled. If not, the user removed it.
@@ -123,6 +151,7 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
           await HistoryRepository.instance.add(cancelled);
         }
       }
+      await NotificationService.instance.cancelProgress();
     } catch (e, st) {
       debugPrint('Error during startNext: $e\n$st');
       if (runningTask != null) {
@@ -133,6 +162,13 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
         );
         await QueueRepository.instance.upsert(failed);
         await HistoryRepository.instance.add(failed);
+
+        // Send failure notification
+        await NotificationService.instance.cancelProgress();
+        await NotificationService.instance.showFailed(
+          runningTask.sourceName ?? 'Video',
+          e.toString().split('\n').first, // Keep it concise
+        );
       }
     } finally {
       ref.read(activeEncodeProvider.notifier).detach();
@@ -143,6 +179,7 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
       } else {
         await WakelockPlus.disable();
         await ForegroundServiceWrapper.instance.stop();
+        await NotificationService.instance.cancelProgress();
       }
     }
   }

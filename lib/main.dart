@@ -13,6 +13,7 @@ import 'data/repositories/history_repository.dart';
 import 'data/repositories/preset_repository.dart';
 import 'data/repositories/queue_repository.dart';
 import 'data/services/foreground_service_wrapper.dart';
+import 'data/services/notification_service.dart';
 import 'data/services/update_service.dart';
 import 'features/logs/logs_screen.dart';
 
@@ -65,6 +66,7 @@ Future<void> main() async {
     await HistoryRepository.instance.bootstrap();
     await AppSettingsRepository.instance.bootstrap();
     await ForegroundServiceWrapper.instance.init();
+    await NotificationService.instance.init();
 
     await UpdateService().cleanupUpdateFile();
   } catch (e, st) {
