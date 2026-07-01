@@ -48,9 +48,11 @@ class LogsScreen extends StatefulWidget {
     if (entry == null) return;
 
     _buffer.add(entry);
-    // Prevent buffer from eating all memory
-    if (_buffer.length > 500) {
-      _buffer.removeRange(0, _buffer.length - 500);
+
+    // Hard limit of 1000 log entries to prevent unbounded memory growth.
+    // Removes the oldest entries if the limit is exceeded.
+    if (_buffer.length > 1000) {
+      _buffer.removeRange(0, _buffer.length - 1000);
     }
 
     // Throttle UI updates to prevent jank when FFmpeg spams logs rapidly.
