@@ -34,11 +34,6 @@
   - Theme mode selection (System, Light, Dark).
   - Persistent notification control for background processing.
 
-- **🛡️ Robust Architecture**
-  - **State Management:** Riverpod (`flutter_riverpod`).
-  - **Local Storage:** Hive CE for persisting queue, history, presets, and app settings.
-  - **Background Execution:** Foreground service with wakelock support for uninterrupted long encodes.
-
 ---
 
 ## 📱 Usage Guide
