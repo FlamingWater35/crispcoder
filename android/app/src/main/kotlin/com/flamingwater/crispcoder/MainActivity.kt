@@ -1,4 +1,4 @@
-package com.example.crispcoder
+package com.flamingwater.crispcoder
 
 import io.flutter.embedding.android.FlutterActivity
 
