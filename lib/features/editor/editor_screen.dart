@@ -166,7 +166,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final outDir = p.dirname(sourcePath);
     final outputPath = PathHelpers.uniqueOutputPath(
       directory: outDir,
-      baseName: '${baseName}_videocode',
+      baseName: '${baseName}_crispcoder',
       extension: preset.fileExtension,
     );
 

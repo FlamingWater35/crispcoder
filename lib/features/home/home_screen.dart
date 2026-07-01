@@ -17,7 +17,7 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('VideoCode'),
+        title: const Text('CrispCoder'),
         actions: [
           if (queue.any(
             (t) =>

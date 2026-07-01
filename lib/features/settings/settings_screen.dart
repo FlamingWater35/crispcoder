@@ -48,7 +48,7 @@ class SettingsScreen extends ConsumerWidget {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('About VideoCode'),
+            title: const Text('About CrispCoder'),
             subtitle: const Text(
               'Handbrake-equivalent transcoder • FFmpeg powered',
             ),

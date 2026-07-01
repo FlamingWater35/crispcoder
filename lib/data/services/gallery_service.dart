@@ -27,7 +27,7 @@ class GalleryService {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(path)],
-          subject: subject ?? 'VideoCode output',
+          subject: subject ?? 'CrispCoder output',
         ),
       );
     } catch (_) {
