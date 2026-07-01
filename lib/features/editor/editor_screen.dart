@@ -23,7 +23,8 @@ import 'widgets/section_card.dart';
 import 'widgets/source_picker.dart';
 
 /// Source selection + advanced configuration screen. Validates all inputs
-/// before enqueueing a task.
+/// before enqueueing a task. Uses a tabbed layout to separate basic and
+/// advanced configurations for a cleaner UX.
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({super.key});
 
@@ -68,7 +69,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   bool get _isVideoCopy => _videoCodec == VideoCodec.copy;
   bool get _isAudioCopy => _audioCodec == AudioCodec.copy;
-
   bool get _hasVisualCrop => _cropWidth != null && _cropWidth! < 1.0;
 
   @override
@@ -128,6 +128,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     return ContainerFormat.mp4;
   }
 
+  /// Applies source media properties to the state for the "Custom" preset.
   void _applySourceDefaults() {
     if (_mediaInfo == null) return;
 
@@ -214,65 +215,492 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SourcePicker(
-                                path: _sourcePath,
-                                probing: _probing,
-                                onPick: _pickSource,
-                              ),
-                              if (_mediaInfo != null) ...[
-                                const SizedBox(height: 16),
-                                MediaInfoCard(info: _mediaInfo!),
-                                const SizedBox(height: 16),
-                                SectionCard(
-                                  title: 'Preset',
-                                  icon: Icons.tune_rounded,
-                                  children: [_buildPresetDropdown(presets)],
-                                ),
-                                const SizedBox(height: 16),
-                                SectionCard(
-                                  title: 'Editing & Subtitles',
-                                  icon: Icons.content_cut_rounded,
-                                  children: _buildEditingChildren(),
-                                ),
-                                const SizedBox(height: 16),
-                                SectionCard(
-                                  title: 'Video',
-                                  icon: Icons.videocam_outlined,
-                                  children: _buildVideoChildren(),
-                                ),
-                                const SizedBox(height: 16),
-                                SectionCard(
-                                  title: 'Audio',
-                                  icon: Icons.graphic_eq_outlined,
-                                  children: _buildAudioChildren(),
-                                ),
-                                const SizedBox(height: 16),
-                                SectionCard(
-                                  title: 'Container',
-                                  icon: Icons.folder_outlined,
-                                  children: _buildContainerChildren(),
-                                ),
-                              ],
-                            ],
+                      // Pinned Source Picker and Media Info
+                      if (_mediaInfo != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                          child: MediaInfoCard(info: _mediaInfo!),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                          child: SourcePicker(
+                            path: _sourcePath,
+                            probing: _probing,
+                            onPick: _pickSource,
                           ),
                         ),
-                      ),
-                      EditorActionBar(
-                        canSubmit: _canSubmit,
-                        hasSource: _sourcePath != null,
-                        onPreview: _openPreview,
-                        onSubmit: _submit,
-                      ),
+
+                      // Tabbed Configuration Area
+                      if (_mediaInfo != null)
+                        Expanded(
+                          child: DefaultTabController(
+                            length: 4,
+                            child: Column(
+                              children: [
+                                const TabBar(
+                                  isScrollable: true,
+                                  tabAlignment: TabAlignment.start,
+                                  tabs: [
+                                    Tab(text: 'Quick Edit'),
+                                    Tab(text: 'Video'),
+                                    Tab(text: 'Audio'),
+                                    Tab(text: 'Output'),
+                                  ],
+                                ),
+                                Expanded(
+                                  child: TabBarView(
+                                    children: [
+                                      _buildQuickEditTab(presets),
+                                      _buildVideoTab(),
+                                      _buildAudioTab(),
+                                      _buildOutputTab(),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
               ),
+        bottomNavigationBar: EditorActionBar(
+          canSubmit: _canSubmit,
+          hasSource: _sourcePath != null,
+          onPreview: _openPreview,
+          onSubmit: _submit,
+        ),
+      ),
+    );
+  }
+
+  /// Quick Edit Tab: Presets, Trimming, Cropping, Subtitles, Remove Audio
+  Widget _buildQuickEditTab(List<TranscodePreset> presets) {
+    final startDur = _parseTimeToDuration(_startController.text);
+    final endDur = _parseTimeToDuration(_endController.text);
+    final trimDuration =
+        (startDur != null && endDur != null && endDur > startDur)
+        ? endDur - startDur
+        : null;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionCard(
+            title: 'Preset',
+            icon: Icons.tune_rounded,
+            children: [_buildPresetDropdown(presets)],
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'Editing & Subtitles',
+            icon: Icons.content_cut_rounded,
+            children: [
+              SwitchListTile(
+                title: const Text('Remove Audio'),
+                subtitle: const Text('Strip the audio track from the output'),
+                value: _removeAudio,
+                onChanged: (v) => setState(() => _removeAudio = v),
+                contentPadding: EdgeInsets.zero,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _startController,
+                      validator: _validateTime,
+                      decoration: const InputDecoration(
+                        labelText: 'Start Time',
+                        hintText: '00:00:00',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.play_arrow, size: 20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _endController,
+                      validator: _validateTime,
+                      decoration: const InputDecoration(
+                        labelText: 'End Time',
+                        hintText: '00:00:00',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.stop, size: 20),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (trimDuration != null) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Trimmed length: ${_formatDuration(trimDuration)}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.content_cut_rounded),
+                  label: const Text('Trim Visually'),
+                  onPressed: _sourcePath != null ? _openTrimPreview : null,
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int?>(
+                decoration: const InputDecoration(
+                  labelText: 'Hardcode Subtitles (Burn-in)',
+                  border: OutlineInputBorder(),
+                ),
+                initialValue: _burnSubtitleIndex,
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('None'),
+                  ),
+                  for (final sub
+                      in _mediaInfo?.subtitleTracks ?? <SubtitleTrack>[])
+                    DropdownMenuItem<int?>(
+                      value: sub.subtitleStreamIndex,
+                      child: Text(sub.label),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _burnSubtitleIndex = v),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Video Tab: Codecs, Rate Control, Aspect Ratio, Resolution, Framerate
+  Widget _buildVideoTab() {
+    final standardAspectRatios = ['16:9', '4:3', '1:1', '9:16', '21:9'];
+    final standardResolutions = [2160, 1440, 1080, 720, 480, 360];
+
+    final fpsOptions = [24, 25, 30, 60];
+    if (_originalFps != null && !fpsOptions.contains(_originalFps)) {
+      fpsOptions.add(_originalFps!);
+    }
+    fpsOptions.sort();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionCard(
+            title: 'Video Configuration',
+            icon: Icons.videocam_outlined,
+            children: [
+              DropdownButtonFormField<VideoCodec>(
+                decoration: const InputDecoration(
+                  labelText: 'Video Codec',
+                  border: OutlineInputBorder(),
+                ),
+                initialValue: _videoCodec,
+                items: VideoCodec.values.map((c) {
+                  final isOrig = c.name == _mediaInfo?.videoCodec;
+                  return DropdownMenuItem(
+                    value: c,
+                    child: Text(
+                      isOrig
+                          ? '${c.name.toUpperCase()} (original)'
+                          : c.name.toUpperCase(),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (v) => setState(() => _videoCodec = v!),
+              ),
+              const SizedBox(height: 8),
+              const EncoderPrefInfo(),
+              if (!_isVideoCopy) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Rate Control',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: true, label: Text('CRF')),
+                    ButtonSegment(value: false, label: Text('Bitrate')),
+                  ],
+                  selected: {_useCrf},
+                  onSelectionChanged: (selection) =>
+                      setState(() => _useCrf = selection.first),
+                ),
+                if (_useCrf) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 56,
+                        child: Text(
+                          'CRF $_crf',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: _crf.toDouble(),
+                          min: 0,
+                          max: 51,
+                          divisions: 51,
+                          label: _crf.toString(),
+                          onChanged: (v) => setState(() => _crf = v.toInt()),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    decoration: const InputDecoration(
+                      labelText: 'Video Bitrate (kbps)',
+                      border: OutlineInputBorder(),
+                    ),
+                    initialValue: _videoBitrate.toString(),
+                    keyboardType: TextInputType.number,
+                    onChanged: (v) => _videoBitrate = int.tryParse(v) ?? 4000,
+                  ),
+                ],
+              ],
+            ],
+          ),
+          if (!_isVideoCopy) ...[
+            const SizedBox(height: 16),
+            SectionCard(
+              title: 'Aspect Ratio & Resolution',
+              icon: Icons.aspect_ratio_outlined,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.crop_rounded),
+                    label: Text(
+                      _hasVisualCrop ? 'Edit Visual Crop' : 'Crop Visually',
+                    ),
+                    onPressed: _sourcePath != null ? _openCropEditor : null,
+                  ),
+                ),
+                if (_hasVisualCrop)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Custom crop applied (${(_cropWidth! * 100).toStringAsFixed(0)}% x ${(_cropHeight! * 100).toStringAsFixed(0)}%)',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String?>(
+                  decoration: const InputDecoration(
+                    labelText: 'Aspect Ratio',
+                    border: OutlineInputBorder(),
+                  ),
+                  initialValue: _aspectRatio,
+                  items: [
+                    DropdownMenuItem<String?>(
+                      value: _originalAspectRatio,
+                      child: Text(
+                        _originalAspectRatio != null
+                            ? '$_originalAspectRatio (Original)'
+                            : 'Original',
+                      ),
+                    ),
+                    for (final ar in standardAspectRatios)
+                      if (ar != _originalAspectRatio)
+                        DropdownMenuItem<String?>(value: ar, child: Text(ar)),
+                  ],
+                  onChanged: (v) => setState(() {
+                    _aspectRatio = v;
+                    // Clear visual crop if using aspect ratio dropdown
+                    _cropLeft = null;
+                    _cropTop = null;
+                    _cropWidth = null;
+                    _cropHeight = null;
+                  }),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int?>(
+                  decoration: const InputDecoration(
+                    labelText: 'Resolution',
+                    border: OutlineInputBorder(),
+                  ),
+                  initialValue: _resolution,
+                  items: [
+                    DropdownMenuItem<int?>(
+                      value: _originalRes,
+                      child: Text(
+                        _originalRes != null
+                            ? '${_originalRes}p (Original)'
+                            : 'Original',
+                      ),
+                    ),
+                    for (final r in standardResolutions)
+                      if (r != _originalRes)
+                        DropdownMenuItem<int?>(value: r, child: Text('${r}p')),
+                  ],
+                  onChanged: (v) => setState(() => _resolution = v),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  decoration: const InputDecoration(
+                    labelText: 'Framerate',
+                    border: OutlineInputBorder(),
+                  ),
+                  initialValue: _framerate,
+                  items: fpsOptions.map((f) {
+                    final isOrig = f == _originalFps;
+                    return DropdownMenuItem<int>(
+                      value: f,
+                      child: Text(isOrig ? '$f fps (original)' : '$f fps'),
+                    );
+                  }).toList(),
+                  onChanged: (v) => setState(() => _framerate = v),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Audio Tab: Audio Codec and Bitrate selection
+  Widget _buildAudioTab() {
+    final standardAudioBitrates = [320, 256, 192, 160, 128, 96];
+    final audioBitrateOptions = [...standardAudioBitrates];
+    if (_originalAudioBitrate != null &&
+        !audioBitrateOptions.contains(_originalAudioBitrate)) {
+      audioBitrateOptions.add(_originalAudioBitrate!);
+    }
+    audioBitrateOptions.sort((a, b) => b.compareTo(a));
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: SectionCard(
+        title: 'Audio Configuration',
+        icon: Icons.graphic_eq_outlined,
+        children: [
+          DropdownButtonFormField<AudioCodec>(
+            decoration: const InputDecoration(
+              labelText: 'Audio Codec',
+              border: OutlineInputBorder(),
+            ),
+            initialValue: _audioCodec,
+            items: AudioCodec.values.map((c) {
+              final isOrig = c.name == _mediaInfo?.audioCodec;
+              return DropdownMenuItem(
+                value: c,
+                child: Text(
+                  isOrig
+                      ? '${c.name.toUpperCase()} (original)'
+                      : c.name.toUpperCase(),
+                ),
+              );
+            }).toList(),
+            onChanged: (v) => setState(() => _audioCodec = v!),
+          ),
+          if (!_isAudioCopy && !_removeAudio) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              decoration: const InputDecoration(
+                labelText: 'Audio Bitrate',
+                border: OutlineInputBorder(),
+              ),
+              initialValue: _audioBitrate,
+              items: audioBitrateOptions.map((b) {
+                final isOrig = b == _originalAudioBitrate;
+                return DropdownMenuItem(
+                  value: b,
+                  child: Text(isOrig ? '$b kbps (original)' : '$b kbps'),
+                );
+              }).toList(),
+              onChanged: (v) => setState(() => _audioBitrate = v!),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Output Tab: Container format and Faststart optimization
+  Widget _buildOutputTab() {
+    final originalContainer = _mapContainer(_mediaInfo?.container);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: SectionCard(
+        title: 'Container Configuration',
+        icon: Icons.folder_outlined,
+        children: [
+          DropdownButtonFormField<ContainerFormat>(
+            decoration: const InputDecoration(
+              labelText: 'Format',
+              border: OutlineInputBorder(),
+            ),
+            initialValue: _container,
+            items: ContainerFormat.values.map((c) {
+              final isOrig = c == originalContainer;
+              return DropdownMenuItem(
+                value: c,
+                child: Text(
+                  isOrig
+                      ? '${c.name.toUpperCase()} (original)'
+                      : c.name.toUpperCase(),
+                ),
+              );
+            }).toList(),
+            onChanged: (v) {
+              setState(() {
+                _container = v!;
+                _faststart = v == ContainerFormat.mp4;
+              });
+            },
+          ),
+          if (_container == ContainerFormat.mp4)
+            SwitchListTile(
+              title: const Text('Faststart (Web Optimized)'),
+              subtitle: const Text(
+                'Move moov atom to file start for streaming',
+              ),
+              value: _faststart,
+              onChanged: (v) => setState(() => _faststart = v),
+              contentPadding: EdgeInsets.zero,
+            ),
+        ],
       ),
     );
   }
@@ -305,369 +733,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         });
       },
     );
-  }
-
-  List<Widget> _buildEditingChildren() {
-    final startDur = _parseTimeToDuration(_startController.text);
-    final endDur = _parseTimeToDuration(_endController.text);
-    final trimDuration =
-        (startDur != null && endDur != null && endDur > startDur)
-        ? endDur - startDur
-        : null;
-
-    return [
-      SwitchListTile(
-        title: const Text('Remove Audio'),
-        subtitle: const Text('Strip the audio track from the output'),
-        value: _removeAudio,
-        onChanged: (v) => setState(() => _removeAudio = v),
-        contentPadding: EdgeInsets.zero,
-      ),
-      const SizedBox(height: 12),
-      Row(
-        children: [
-          Expanded(
-            child: TextFormField(
-              controller: _startController,
-              validator: _validateTime,
-              decoration: const InputDecoration(
-                labelText: 'Start Time',
-                hintText: '00:00:00',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.play_arrow, size: 20),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextFormField(
-              controller: _endController,
-              validator: _validateTime,
-              decoration: const InputDecoration(
-                labelText: 'End Time',
-                hintText: '00:00:00',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.stop, size: 20),
-              ),
-            ),
-          ),
-        ],
-      ),
-      if (trimDuration != null) ...[
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            'Trimmed length: ${_formatDuration(trimDuration)}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w600,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-      ],
-      const SizedBox(height: 12),
-      SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          icon: const Icon(Icons.content_cut_rounded),
-          label: const Text('Trim Visually'),
-          onPressed: _sourcePath != null ? _openTrimPreview : null,
-        ),
-      ),
-      const SizedBox(height: 12),
-      DropdownButtonFormField<int?>(
-        decoration: const InputDecoration(
-          labelText: 'Hardcode Subtitles (Burn-in)',
-          border: OutlineInputBorder(),
-        ),
-        initialValue: _burnSubtitleIndex,
-        items: [
-          const DropdownMenuItem<int?>(value: null, child: Text('None')),
-          for (final sub in _mediaInfo?.subtitleTracks ?? <SubtitleTrack>[])
-            DropdownMenuItem<int?>(
-              value: sub.subtitleStreamIndex,
-              child: Text(sub.label),
-            ),
-        ],
-        onChanged: (v) => setState(() => _burnSubtitleIndex = v),
-      ),
-    ];
-  }
-
-  List<Widget> _buildVideoChildren() {
-    final standardAspectRatios = ['16:9', '4:3', '1:1', '9:16', '21:9'];
-    final standardResolutions = [2160, 1440, 1080, 720, 480, 360];
-
-    final fpsOptions = [24, 25, 30, 60];
-    if (_originalFps != null && !fpsOptions.contains(_originalFps)) {
-      fpsOptions.add(_originalFps!);
-    }
-    fpsOptions.sort();
-
-    return [
-      DropdownButtonFormField<VideoCodec>(
-        decoration: const InputDecoration(
-          labelText: 'Video Codec',
-          border: OutlineInputBorder(),
-        ),
-        initialValue: _videoCodec,
-        items: VideoCodec.values.map((c) {
-          final isOrig = c.name == _mediaInfo?.videoCodec;
-          return DropdownMenuItem(
-            value: c,
-            child: Text(
-              isOrig
-                  ? '${c.name.toUpperCase()} (original)'
-                  : c.name.toUpperCase(),
-            ),
-          );
-        }).toList(),
-        onChanged: (v) => setState(() => _videoCodec = v!),
-      ),
-      const SizedBox(height: 8),
-      const EncoderPrefInfo(),
-      if (!_isVideoCopy) ...[
-        const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            'Rate Control',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(value: true, label: Text('CRF')),
-            ButtonSegment(value: false, label: Text('Bitrate')),
-          ],
-          selected: {_useCrf},
-          onSelectionChanged: (selection) =>
-              setState(() => _useCrf = selection.first),
-        ),
-        if (_useCrf) ...[
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              SizedBox(
-                width: 56,
-                child: Text(
-                  'CRF $_crf',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Slider(
-                  value: _crf.toDouble(),
-                  min: 0,
-                  max: 51,
-                  divisions: 51,
-                  label: _crf.toString(),
-                  onChanged: (v) => setState(() => _crf = v.toInt()),
-                ),
-              ),
-            ],
-          ),
-        ] else ...[
-          const SizedBox(height: 12),
-          TextFormField(
-            decoration: const InputDecoration(
-              labelText: 'Video Bitrate (kbps)',
-              border: OutlineInputBorder(),
-            ),
-            initialValue: _videoBitrate.toString(),
-            keyboardType: TextInputType.number,
-            onChanged: (v) => _videoBitrate = int.tryParse(v) ?? 4000,
-          ),
-        ],
-        const SizedBox(height: 12),
-        // Visual Crop button
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.crop_rounded),
-            label: Text(_hasVisualCrop ? 'Edit Visual Crop' : 'Crop Visually'),
-            onPressed: _sourcePath != null ? _openCropEditor : null,
-          ),
-        ),
-        if (_hasVisualCrop)
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Custom crop applied (${(_cropWidth! * 100).toStringAsFixed(0)}% x ${(_cropHeight! * 100).toStringAsFixed(0)}%)',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<String?>(
-          decoration: const InputDecoration(
-            labelText: 'Aspect Ratio',
-            border: OutlineInputBorder(),
-          ),
-          initialValue: _aspectRatio,
-          items: [
-            DropdownMenuItem<String?>(
-              value: _originalAspectRatio,
-              child: Text(
-                _originalAspectRatio != null
-                    ? '$_originalAspectRatio (Original)'
-                    : 'Original',
-              ),
-            ),
-            for (final ar in standardAspectRatios)
-              if (ar != _originalAspectRatio)
-                DropdownMenuItem<String?>(value: ar, child: Text(ar)),
-          ],
-          onChanged: (v) => setState(() {
-            _aspectRatio = v;
-            // Clear visual crop if using aspect ratio dropdown
-            _cropLeft = null;
-            _cropTop = null;
-            _cropWidth = null;
-            _cropHeight = null;
-          }),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<int?>(
-          decoration: const InputDecoration(
-            labelText: 'Resolution',
-            border: OutlineInputBorder(),
-          ),
-          initialValue: _resolution,
-          items: [
-            DropdownMenuItem<int?>(
-              value: _originalRes,
-              child: Text(
-                _originalRes != null
-                    ? '${_originalRes}p (Original)'
-                    : 'Original',
-              ),
-            ),
-            for (final r in standardResolutions)
-              if (r != _originalRes)
-                DropdownMenuItem<int?>(value: r, child: Text('${r}p')),
-          ],
-          onChanged: (v) => setState(() => _resolution = v),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<int>(
-          decoration: const InputDecoration(
-            labelText: 'Framerate',
-            border: OutlineInputBorder(),
-          ),
-          initialValue: _framerate,
-          items: fpsOptions.map((f) {
-            final isOrig = f == _originalFps;
-            return DropdownMenuItem<int>(
-              value: f,
-              child: Text(isOrig ? '$f fps (original)' : '$f fps'),
-            );
-          }).toList(),
-          onChanged: (v) => setState(() => _framerate = v),
-        ),
-      ],
-    ];
-  }
-
-  List<Widget> _buildAudioChildren() {
-    final standardAudioBitrates = [320, 256, 192, 160, 128, 96];
-    final audioBitrateOptions = [...standardAudioBitrates];
-    if (_originalAudioBitrate != null &&
-        !audioBitrateOptions.contains(_originalAudioBitrate)) {
-      audioBitrateOptions.add(_originalAudioBitrate!);
-    }
-    audioBitrateOptions.sort((a, b) => b.compareTo(a));
-
-    return [
-      DropdownButtonFormField<AudioCodec>(
-        decoration: const InputDecoration(
-          labelText: 'Audio Codec',
-          border: OutlineInputBorder(),
-        ),
-        initialValue: _audioCodec,
-        items: AudioCodec.values.map((c) {
-          final isOrig = c.name == _mediaInfo?.audioCodec;
-          return DropdownMenuItem(
-            value: c,
-            child: Text(
-              isOrig
-                  ? '${c.name.toUpperCase()} (original)'
-                  : c.name.toUpperCase(),
-            ),
-          );
-        }).toList(),
-        onChanged: (v) => setState(() => _audioCodec = v!),
-      ),
-      if (!_isAudioCopy && !_removeAudio) ...[
-        const SizedBox(height: 12),
-        DropdownButtonFormField<int>(
-          decoration: const InputDecoration(
-            labelText: 'Audio Bitrate',
-            border: OutlineInputBorder(),
-          ),
-          initialValue: _audioBitrate,
-          items: audioBitrateOptions.map((b) {
-            final isOrig = b == _originalAudioBitrate;
-            return DropdownMenuItem(
-              value: b,
-              child: Text(isOrig ? '$b kbps (original)' : '$b kbps'),
-            );
-          }).toList(),
-          onChanged: (v) => setState(() => _audioBitrate = v!),
-        ),
-      ],
-    ];
-  }
-
-  List<Widget> _buildContainerChildren() {
-    final originalContainer = _mapContainer(_mediaInfo?.container);
-
-    return [
-      DropdownButtonFormField<ContainerFormat>(
-        decoration: const InputDecoration(
-          labelText: 'Format',
-          border: OutlineInputBorder(),
-        ),
-        initialValue: _container,
-        items: ContainerFormat.values.map((c) {
-          final isOrig = c == originalContainer;
-          return DropdownMenuItem(
-            value: c,
-            child: Text(
-              isOrig
-                  ? '${c.name.toUpperCase()} (original)'
-                  : c.name.toUpperCase(),
-            ),
-          );
-        }).toList(),
-        onChanged: (v) {
-          setState(() {
-            _container = v!;
-            _faststart = v == ContainerFormat.mp4;
-          });
-        },
-      ),
-      if (_container == ContainerFormat.mp4)
-        SwitchListTile(
-          title: const Text('Faststart (Web Optimized)'),
-          subtitle: const Text('Move moov atom to file start for streaming'),
-          value: _faststart,
-          onChanged: (v) => setState(() => _faststart = v),
-          contentPadding: EdgeInsets.zero,
-        ),
-    ];
   }
 
   bool get _canSubmit => _sourcePath != null && !_probing;
