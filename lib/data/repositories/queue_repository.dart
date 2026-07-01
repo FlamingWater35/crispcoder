@@ -3,8 +3,7 @@ import 'package:hive_ce/hive_ce.dart';
 import '../../core/constants/app_constants.dart';
 import '../models/encode_task.dart';
 
-/// Persisted queue store. Every mutation is written through Hive so the
-/// queue survives crashes; pending/running tasks are recovered on startup.
+/// Persisted queue store. Cleared on app startup to remove stale operations.
 class QueueRepository {
   QueueRepository._();
   static final QueueRepository instance = QueueRepository._();
@@ -17,13 +16,10 @@ class QueueRepository {
       return;
     }
     _box = await Hive.openBox<EncodeTask>(AppConstants.boxQueue);
-    // Any task marked running at exit time should reset to pending for resume
-    for (final task in _box.values.toList()) {
-      if (task.status == EncodeStatus.running ||
-          task.status == EncodeStatus.paused) {
-        await _box.put(task.id, task.copyWith(status: EncodeStatus.pending));
-      }
-    }
+
+    // Remove queued operations after relaunching the app to start fresh.
+    await _box.clear();
+
     _initialized = true;
   }
 

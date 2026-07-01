@@ -85,16 +85,14 @@ class _QueueTileState extends ConsumerState<QueueTile> {
         ? activeProgress
         : null;
 
-    final isFinished =
-        task.status == EncodeStatus.completed ||
-        task.status == EncodeStatus.failed ||
-        task.status == EncodeStatus.cancelled;
+    // Only allow expansion if the task completed successfully
+    final canExpand = task.status == EncodeStatus.completed;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: isFinished
+        onTap: canExpand
             ? () => setState(() => _isExpanded = !_isExpanded)
             : null,
         child: Padding(
@@ -125,7 +123,7 @@ class _QueueTileState extends ConsumerState<QueueTile> {
                       icon: const Icon(Icons.delete_outline),
                       onPressed: widget.onRemove,
                     ),
-                  if (isFinished)
+                  if (canExpand)
                     Icon(
                       _isExpanded ? Icons.expand_less : Icons.expand_more,
                       color: theme.colorScheme.onSurfaceVariant,
@@ -160,7 +158,7 @@ class _QueueTileState extends ConsumerState<QueueTile> {
               AnimatedSize(
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeInOut,
-                child: _isExpanded && isFinished
+                child: _isExpanded && canExpand
                     ? _buildDetailsPanel(context, task)
                     : const SizedBox.shrink(),
               ),

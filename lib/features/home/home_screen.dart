@@ -43,8 +43,9 @@ class HomeScreen extends ConsumerWidget {
                   onCancel: task.status == EncodeStatus.running
                       ? () => ref.read(queueProvider.notifier).cancelActive()
                       : null,
-                  onRemove: () =>
-                      ref.read(queueProvider.notifier).remove(task.id),
+                  onRemove: task.status != EncodeStatus.running
+                      ? () => ref.read(queueProvider.notifier).remove(task.id)
+                      : null,
                 );
               },
             ),
