@@ -1,24 +1,55 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/models/transcode_preset.dart';
 import '../data/repositories/app_settings_repository.dart';
 
-/// Reactive global app settings. Currently tracks the encoder preference
-/// that the editor applies to every new encode.
+/// Immutable state holding app-wide settings.
+class AppSettingsState {
+  final EncoderPreference encoderPreference;
+  final ThemeMode themeMode;
+
+  const AppSettingsState({
+    required this.encoderPreference,
+    required this.themeMode,
+  });
+
+  AppSettingsState copyWith({
+    EncoderPreference? encoderPreference,
+    ThemeMode? themeMode,
+  }) {
+    return AppSettingsState(
+      encoderPreference: encoderPreference ?? this.encoderPreference,
+      themeMode: themeMode ?? this.themeMode,
+    );
+  }
+}
+
+/// Reactive global app settings. Tracks encoder preference and theme mode.
 final appSettingsProvider =
-    NotifierProvider<AppSettingsNotifier, EncoderPreference>(
+    NotifierProvider<AppSettingsNotifier, AppSettingsState>(
       AppSettingsNotifier.new,
     );
 
-class AppSettingsNotifier extends Notifier<EncoderPreference> {
+class AppSettingsNotifier extends Notifier<AppSettingsState> {
   @override
-  EncoderPreference build() {
-    return AppSettingsRepository.instance.encoderPreference;
+  AppSettingsState build() {
+    final repo = AppSettingsRepository.instance;
+    return AppSettingsState(
+      encoderPreference: repo.encoderPreference,
+      themeMode: repo.themeMode,
+    );
   }
 
   /// Updates and persists the encoder preference.
   Future<void> setEncoderPreference(EncoderPreference pref) async {
     await AppSettingsRepository.instance.setEncoderPreference(pref);
-    state = pref;
+    state = state.copyWith(encoderPreference: pref);
+  }
+
+  /// Updates and persists the theme mode.
+  Future<void> setThemeMode(ThemeMode mode) async {
+    await AppSettingsRepository.instance.setThemeMode(mode);
+    state = state.copyWith(themeMode: mode);
   }
 }

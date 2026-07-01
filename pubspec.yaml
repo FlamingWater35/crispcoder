@@ -57,6 +57,9 @@ dependencies:
   gal: ^2.3.0
   logger: ^2.4.0
 
+  # UI & Feedback
+  awesome_snackbar_content: ^0.1.3
+
   # Misc
   collection: ^1.18.0
 

@@ -1,9 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:hive_ce/hive_ce.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../models/transcode_preset.dart';
 
-/// Hive-backed store for user-level app settings (encoder preference, etc.).
+/// Hive-backed store for user-level app settings (theme, encoder preference).
 /// Falls back to defaults if Hive is unavailable.
 class AppSettingsRepository {
   AppSettingsRepository._();
@@ -43,6 +44,28 @@ class AppSettingsRepository {
       await _box.put(AppConstants.keyEncoderPref, pref.index);
     } catch (_) {
       // Best-effort write; value won't persist but in-memory state stays correct
+    }
+  }
+
+  /// Returns the persisted theme mode; defaults to system.
+  ThemeMode get themeMode {
+    try {
+      final idx = _box.get(AppConstants.keyThemeMode) as int?;
+      if (idx == null || idx < 0 || idx >= ThemeMode.values.length) {
+        return ThemeMode.system;
+      }
+      return ThemeMode.values[idx];
+    } catch (_) {
+      return ThemeMode.system;
+    }
+  }
+
+  /// Persists the theme mode selection.
+  Future<void> setThemeMode(ThemeMode mode) async {
+    try {
+      await _box.put(AppConstants.keyThemeMode, mode.index);
+    } catch (_) {
+      // Best-effort write
     }
   }
 }

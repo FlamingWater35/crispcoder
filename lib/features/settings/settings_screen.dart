@@ -1,24 +1,89 @@
+import 'package:awesome_snackbar_content/awesome_snackbar_content.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/snackbar_helper.dart';
 import '../../data/models/transcode_preset.dart';
 import '../../data/services/permission_service.dart';
 import '../../providers/app_settings_provider.dart';
 
-/// App settings: encoder preference, permissions, battery exemption, about.
+/// App settings: appearance, encoder preference, permissions, about info.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final encoderPref = ref.watch(appSettingsProvider);
+    final settings = ref.watch(appSettingsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
+          // --- Appearance Section ---
+          _SectionHeader(title: 'Appearance', icon: Icons.palette_outlined),
+          const SizedBox(height: 8),
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Theme Mode',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Choose how the app adapts to system settings.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<ThemeMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: ThemeMode.system,
+                        label: Text('System'),
+                        icon: Icon(Icons.settings_brightness, size: 18),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.light,
+                        label: Text('Light'),
+                        icon: Icon(Icons.light_mode_outlined, size: 18),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.dark,
+                        label: Text('Dark'),
+                        icon: Icon(Icons.dark_mode_outlined, size: 18),
+                      ),
+                    ],
+                    selected: {settings.themeMode},
+                    onSelectionChanged: (selection) {
+                      ref
+                          .read(appSettingsProvider.notifier)
+                          .setThemeMode(selection.first);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
           // --- Encoding Section ---
           _SectionHeader(title: 'Encoding', icon: Icons.memory_outlined),
           const SizedBox(height: 8),
@@ -51,7 +116,6 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  // Segmented selector for encoder preference
                   SegmentedButton<EncoderPreference>(
                     segments: const [
                       ButtonSegment(
@@ -70,7 +134,7 @@ class SettingsScreen extends ConsumerWidget {
                         icon: Icon(Icons.developer_board, size: 18),
                       ),
                     ],
-                    selected: {encoderPref},
+                    selected: {settings.encoderPreference},
                     onSelectionChanged: (selection) {
                       ref
                           .read(appSettingsProvider.notifier)
@@ -116,16 +180,20 @@ class SettingsScreen extends ConsumerWidget {
                           .read(permissionServiceProvider)
                           .requireNotifications();
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Notifications granted'),
-                          ),
+                        AppSnackbar.show(
+                          context: context,
+                          title: 'Success!',
+                          message: 'Notifications granted.',
+                          contentType: ContentType.success,
                         );
                       }
                     } catch (_) {
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Permission denied')),
+                        AppSnackbar.show(
+                          context: context,
+                          title: 'Denied',
+                          message: 'Permission denied.',
+                          contentType: ContentType.failure,
                         );
                       }
                     }

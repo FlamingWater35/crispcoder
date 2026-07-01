@@ -18,6 +18,7 @@ class AppConstants {
 
   // App settings keys
   static const keyEncoderPref = 'encoder_preference';
+  static const keyThemeMode = 'theme_mode';
 
   // Foreground service
   static const fgNotificationChannelId = 'videocode_encode';

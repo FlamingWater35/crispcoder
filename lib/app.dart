@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'features/home/home_screen.dart';
 import 'features/logs/logs_screen.dart';
 import 'features/settings/settings_screen.dart';
+import 'providers/app_settings_provider.dart';
 
 /// Root widget: Material app with bottom-nav between Queue, Logs, Settings.
 class CrispCoderApp extends ConsumerWidget {
@@ -11,14 +12,22 @@ class CrispCoderApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+
     return MaterialApp(
       title: 'CrispCoder',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         colorSchemeSeed: const Color(0xFF2196F3),
+        brightness: Brightness.light,
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: const Color(0xFF2196F3),
         brightness: Brightness.dark,
       ),
+      themeMode: settings.themeMode,
       home: const _RootShell(),
     );
   }

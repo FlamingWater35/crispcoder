@@ -423,7 +423,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   /// Builds a small info banner showing the current global encoder preference.
   Widget _buildEncoderPrefInfo() {
     final theme = Theme.of(context);
-    final pref = ref.watch(appSettingsProvider);
+    final pref = ref.watch(appSettingsProvider).encoderPreference;
     final label = switch (pref) {
       EncoderPreference.auto => 'Auto',
       EncoderPreference.hardware => 'Hardware',
@@ -654,7 +654,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final sourcePath = _sourcePath;
     if (sourcePath == null) return;
 
-    final encoderPref = ref.read(appSettingsProvider);
+    final encoderPref = ref.read(appSettingsProvider).encoderPreference;
 
     final preset = TranscodePreset(
       id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
