@@ -49,13 +49,13 @@ Future<void> main() async {
   Hive.registerAdapter(EncodeStatusAdapter());
 
   try {
-    // DB Migration V3: Added exact visual crop dimensions
+    // DB Migration V4: Added OutputType enum
     final settingsBox = await Hive.openBox(AppConstants.boxSettings);
     final schemaVersion =
         settingsBox.get(AppConstants.keySchemaVersion) as int? ?? 1;
-    if (schemaVersion < 3) {
+    if (schemaVersion < 4) {
       await Hive.deleteBoxFromDisk(AppConstants.boxPresets);
-      await settingsBox.put(AppConstants.keySchemaVersion, 3);
+      await settingsBox.put(AppConstants.keySchemaVersion, 4);
     }
 
     await PathHelpers.clearAppCache();

@@ -17,10 +17,12 @@ import '../preview/preview_models.dart';
 import '../preview/preview_screen.dart';
 import 'widgets/editor_action_bar.dart';
 import 'widgets/editor_error_view.dart';
-import 'widgets/encoder_pref_info.dart';
 import 'widgets/media_info_card.dart';
-import 'widgets/section_card.dart';
 import 'widgets/source_picker.dart';
+import 'widgets/tabs/audio_tab.dart';
+import 'widgets/tabs/output_tab.dart';
+import 'widgets/tabs/quick_edit_tab.dart';
+import 'widgets/tabs/video_tab.dart';
 
 /// Source selection + advanced configuration screen. Validates all inputs
 /// before enqueueing a task. Uses a tabbed layout to separate basic and
@@ -42,6 +44,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   // Preset & Advanced Configuration State
   String? _selectedPresetId = 'custom';
+  OutputType _outputType = OutputType.video;
   VideoCodec _videoCodec = VideoCodec.h264;
   bool _useCrf = true;
   int _crf = 23;
@@ -99,23 +102,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         '${s.toString().padLeft(2, '0')}';
   }
 
-  int? get _originalRes => _mediaInfo?.height;
-
-  /// Computes the simplified fraction string of the source aspect ratio
-  String? get _originalAspectRatio {
-    final w = _mediaInfo?.width;
-    final h = _mediaInfo?.height;
-    if (w == null || h == null || w == 0 || h == 0) return null;
-    int gcd(int a, int b) => b == 0 ? a : gcd(b, a % b);
-    final g = gcd(w, h);
-    return '${w ~/ g}:${h ~/ g}';
-  }
-
-  int? get _originalFps => _mediaInfo?.frameRate?.round();
-  int? get _originalAudioBitrate => _mediaInfo?.audioBitrateBitsPerSec != null
-      ? _mediaInfo!.audioBitrateBitsPerSec! ~/ 1000
-      : null;
-
   ContainerFormat _mapContainer(String? format) {
     if (format == null) return ContainerFormat.mp4;
     if (format.contains('mp4') || format.contains('mov')) {
@@ -141,10 +127,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       orElse: () => AudioCodec.aac,
     );
 
-    _resolution = _originalRes;
-    _aspectRatio = _originalAspectRatio;
-    _framerate = _originalFps ?? 30;
-    _audioBitrate = _originalAudioBitrate ?? 160;
+    _resolution = _mediaInfo?.height;
+
+    final w = _mediaInfo?.width;
+    final h = _mediaInfo?.height;
+    if (w != null && h != null && w > 0 && h > 0) {
+      int gcd(int a, int b) => b == 0 ? a : gcd(b, a % b);
+      final g = gcd(w, h);
+      _aspectRatio = '${w ~/ g}:${h ~/ g}';
+    } else {
+      _aspectRatio = null;
+    }
+
+    _framerate = _mediaInfo?.frameRate?.round() ?? 30;
+    _audioBitrate = _mediaInfo?.audioBitrateBitsPerSec != null
+        ? _mediaInfo!.audioBitrateBitsPerSec! ~/ 1000
+        : 160;
     _container = _mapContainer(_mediaInfo!.container);
     _useCrf = true;
     _crf = 23;
@@ -158,7 +156,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       _endController.clear();
     }
 
-    // Reset Visual Crop
     _cropLeft = null;
     _cropTop = null;
     _cropWidth = null;
@@ -166,17 +163,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   }
 
   void _applyPreset(TranscodePreset preset) {
+    _outputType = preset.outputType;
     _videoCodec = preset.videoCodec;
     _useCrf = preset.crf != null;
     _crf = preset.crf ?? 23;
     _videoBitrate = preset.videoBitrate ?? 4000;
-    _resolution = preset.resolution ?? _originalRes;
-    _aspectRatio = preset.aspectRatio ?? _originalAspectRatio;
-    _framerate = preset.framerate ?? _originalFps ?? 30;
+    _resolution = preset.resolution ?? _mediaInfo?.height;
+    _aspectRatio = preset.aspectRatio;
+    _framerate = preset.framerate ?? _mediaInfo?.frameRate?.round() ?? 30;
     _audioCodec = preset.audioCodec;
     _audioBitrate = preset.audioBitrate > 0
         ? preset.audioBitrate
-        : (_originalAudioBitrate ?? 160);
+        : (_mediaInfo?.audioBitrateBitsPerSec != null
+              ? _mediaInfo!.audioBitrateBitsPerSec! ~/ 1000
+              : 160);
     _container = preset.container;
     _faststart = preset.faststart;
 
@@ -191,23 +191,23 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _cropHeight = preset.cropHeight;
   }
 
-  String? _validateTime(String? value) {
-    if (value == null || value.isEmpty) return null;
-    final regex = RegExp(r'^(\d{1,2}):([0-5]\d):([0-5]\d)$');
-    if (!regex.hasMatch(value)) {
-      return 'Use HH:MM:SS format';
-    }
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
     final presets = ref.watch(presetProvider);
 
+    String title = 'New Encode';
+    if (_mediaInfo != null) {
+      title = switch (_outputType) {
+        OutputType.video => 'Encode Video',
+        OutputType.audio => 'Extract Audio',
+        OutputType.subtitle => 'Extract Subtitles',
+      };
+    }
+
     return PopScope(
       canPop: !_probing,
       child: Scaffold(
-        appBar: AppBar(title: const Text('New Encode')),
+        appBar: AppBar(title: Text(title)),
         body: _error != null
             ? EditorErrorView(message: _error!, onRetry: _clearError)
             : SafeArea(
@@ -215,53 +215,35 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      // Pinned Source Picker and Media Info
-                      if (_mediaInfo != null)
+                      if (_mediaInfo != null) ...[
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                           child: MediaInfoCard(info: _mediaInfo!),
-                        )
-                      else
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                          child: SourcePicker(
-                            path: _sourcePath,
-                            probing: _probing,
-                            onPick: _pickSource,
-                          ),
                         ),
-
-                      // Tabbed Configuration Area
-                      if (_mediaInfo != null)
+                        // Only build tabs if mediaInfo is available
+                        Expanded(child: _buildTabs(presets)),
+                      ] else ...[
+                        // Empty state: Show mode selector and source picker
                         Expanded(
-                          child: DefaultTabController(
-                            length: 4,
-                            child: Column(
-                              children: [
-                                const TabBar(
-                                  isScrollable: true,
-                                  tabAlignment: TabAlignment.start,
-                                  tabs: [
-                                    Tab(text: 'Quick Edit'),
-                                    Tab(text: 'Video'),
-                                    Tab(text: 'Audio'),
-                                    Tab(text: 'Output'),
-                                  ],
-                                ),
-                                Expanded(
-                                  child: TabBarView(
-                                    children: [
-                                      _buildQuickEditTab(presets),
-                                      _buildVideoTab(),
-                                      _buildAudioTab(),
-                                      _buildOutputTab(),
-                                    ],
+                          child: Center(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildModeSelector(),
+                                  const SizedBox(height: 32),
+                                  SourcePicker(
+                                    path: _sourcePath,
+                                    probing: _probing,
+                                    onPick: _pickSource,
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
+                      ],
                     ],
                   ),
                 ),
@@ -276,462 +258,228 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Quick Edit Tab: Presets, Trimming, Cropping, Subtitles, Remove Audio
-  Widget _buildQuickEditTab(List<TranscodePreset> presets) {
-    final startDur = _parseTimeToDuration(_startController.text);
-    final endDur = _parseTimeToDuration(_endController.text);
-    final trimDuration =
-        (startDur != null && endDur != null && endDur > startDur)
-        ? endDur - startDur
-        : null;
+  /// Constructs the TabBar and TabBarView based on the selected OutputType.
+  /// Guaranteed to be called only when _mediaInfo is non-null.
+  Widget _buildTabs(List<TranscodePreset> presets) {
+    final mediaInfo = _mediaInfo!;
+    final tabs = <Tab>[];
+    final tabViews = <Widget>[];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
+    if (_outputType == OutputType.video) {
+      tabs.addAll([
+        const Tab(text: 'Quick Edit'),
+        const Tab(text: 'Video'),
+        const Tab(text: 'Audio'),
+        const Tab(text: 'Output'),
+      ]);
+      tabViews.addAll([
+        QuickEditTab(
+          presets: presets,
+          selectedPresetId: _selectedPresetId,
+          onPresetChanged: (v) {
+            if (v == null) return;
+            setState(() {
+              _selectedPresetId = v;
+              if (v == 'custom') {
+                _applySourceDefaults();
+              } else {
+                final preset = presets.firstWhere((p) => p.id == v);
+                _applyPreset(preset);
+              }
+            });
+          },
+          outputType: _outputType,
+          startController: _startController,
+          endController: _endController,
+          sourcePath: _sourcePath,
+          removeAudio: _removeAudio,
+          onRemoveAudioChanged: (v) => setState(() => _removeAudio = v),
+          subtitleTracks: mediaInfo.subtitleTracks,
+          burnSubtitleIndex: _burnSubtitleIndex,
+          onSubtitleChanged: (v) => setState(() => _burnSubtitleIndex = v),
+          onTrimPreview: _openTrimPreview,
+        ),
+        VideoTab(
+          mediaInfo: mediaInfo,
+          videoCodec: _videoCodec,
+          onVideoCodecChanged: (v) => setState(() => _videoCodec = v!),
+          useCrf: _useCrf,
+          onUseCrfChanged: (selection) =>
+              setState(() => _useCrf = selection.first),
+          crf: _crf,
+          onCrfChanged: (v) => setState(() => _crf = v.toInt()),
+          videoBitrate: _videoBitrate,
+          onVideoBitrateChanged: (v) => _videoBitrate = int.tryParse(v) ?? 4000,
+          hasVisualCrop: _hasVisualCrop,
+          cropWidth: _cropWidth,
+          cropHeight: _cropHeight,
+          onCropEditor: _sourcePath != null ? _openCropEditor : null,
+          aspectRatio: _aspectRatio,
+          onAspectRatioChanged: (v) => setState(() {
+            _aspectRatio = v;
+            _cropLeft = null;
+            _cropTop = null;
+            _cropWidth = null;
+            _cropHeight = null;
+          }),
+          resolution: _resolution,
+          onResolutionChanged: (v) => setState(() => _resolution = v),
+          framerate: _framerate,
+          onFramerateChanged: (v) => setState(() => _framerate = v),
+        ),
+        AudioTab(
+          mediaInfo: mediaInfo,
+          audioCodec: _audioCodec,
+          onAudioCodecChanged: (v) => setState(() => _audioCodec = v!),
+          audioBitrate: _audioBitrate,
+          onAudioBitrateChanged: (v) => setState(() => _audioBitrate = v!),
+          isAudioCopy: _isAudioCopy,
+          removeAudio: _removeAudio,
+        ),
+        OutputTab(
+          mediaInfo: mediaInfo,
+          container: _container,
+          onContainerChanged: (v) {
+            setState(() {
+              _container = v!;
+              _faststart = v == ContainerFormat.mp4;
+            });
+          },
+          faststart: _faststart,
+          onFaststartChanged: (v) => setState(() => _faststart = v),
+        ),
+      ]);
+    } else if (_outputType == OutputType.audio) {
+      tabs.addAll([const Tab(text: 'Quick Edit'), const Tab(text: 'Audio')]);
+      tabViews.addAll([
+        QuickEditTab(
+          presets: presets,
+          selectedPresetId: _selectedPresetId,
+          onPresetChanged: (v) {
+            if (v == null) return;
+            setState(() {
+              _selectedPresetId = v;
+              if (v == 'custom') {
+                _applySourceDefaults();
+              } else {
+                final preset = presets.firstWhere((p) => p.id == v);
+                _applyPreset(preset);
+              }
+            });
+          },
+          outputType: _outputType,
+          startController: _startController,
+          endController: _endController,
+          sourcePath: _sourcePath,
+          removeAudio: _removeAudio,
+          onRemoveAudioChanged: (v) => setState(() => _removeAudio = v),
+          subtitleTracks: mediaInfo.subtitleTracks,
+          burnSubtitleIndex: _burnSubtitleIndex,
+          onSubtitleChanged: (v) => setState(() => _burnSubtitleIndex = v),
+          onTrimPreview: _openTrimPreview,
+        ),
+        AudioTab(
+          mediaInfo: mediaInfo,
+          audioCodec: _audioCodec,
+          onAudioCodecChanged: (v) => setState(() => _audioCodec = v!),
+          audioBitrate: _audioBitrate,
+          onAudioBitrateChanged: (v) => setState(() => _audioBitrate = v!),
+          isAudioCopy: _isAudioCopy,
+          removeAudio: _removeAudio,
+        ),
+      ]);
+    } else if (_outputType == OutputType.subtitle) {
+      tabs.add(const Tab(text: 'Subtitles'));
+      tabViews.add(
+        QuickEditTab(
+          presets: presets,
+          selectedPresetId: _selectedPresetId,
+          onPresetChanged: (v) {
+            if (v == null) return;
+            setState(() {
+              _selectedPresetId = v;
+              if (v == 'custom') {
+                _applySourceDefaults();
+              } else {
+                final preset = presets.firstWhere((p) => p.id == v);
+                _applyPreset(preset);
+              }
+            });
+          },
+          outputType: _outputType,
+          startController: _startController,
+          endController: _endController,
+          sourcePath: _sourcePath,
+          removeAudio: _removeAudio,
+          onRemoveAudioChanged: (v) => setState(() => _removeAudio = v),
+          subtitleTracks: mediaInfo.subtitleTracks,
+          burnSubtitleIndex: _burnSubtitleIndex,
+          onSubtitleChanged: (v) => setState(() => _burnSubtitleIndex = v),
+          onTrimPreview: _openTrimPreview,
+        ),
+      );
+    }
+
+    return DefaultTabController(
+      length: tabs.length,
+      child: Column(
+        children: [
+          TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            tabs: tabs,
+          ),
+          Expanded(child: TabBarView(children: tabViews)),
+        ],
+      ),
+    );
+  }
+
+  /// Extracts the SegmentedButton for OutputType selection. Only visible on the initial screen.
+  Widget _buildModeSelector() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SectionCard(
-            title: 'Preset',
-            icon: Icons.tune_rounded,
-            children: [_buildPresetDropdown(presets)],
+          Text(
+            'Select Output Mode',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'Editing & Subtitles',
-            icon: Icons.content_cut_rounded,
-            children: [
-              SwitchListTile(
-                title: const Text('Remove Audio'),
-                subtitle: const Text('Strip the audio track from the output'),
-                value: _removeAudio,
-                onChanged: (v) => setState(() => _removeAudio = v),
-                contentPadding: EdgeInsets.zero,
+          const SizedBox(height: 12),
+          SegmentedButton<OutputType>(
+            segments: const [
+              ButtonSegment(
+                value: OutputType.video,
+                label: Text('Video'),
+                icon: Icon(Icons.movie),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _startController,
-                      validator: _validateTime,
-                      decoration: const InputDecoration(
-                        labelText: 'Start Time',
-                        hintText: '00:00:00',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.play_arrow, size: 20),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _endController,
-                      validator: _validateTime,
-                      decoration: const InputDecoration(
-                        labelText: 'End Time',
-                        hintText: '00:00:00',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.stop, size: 20),
-                      ),
-                    ),
-                  ),
-                ],
+              ButtonSegment(
+                value: OutputType.audio,
+                label: Text('Audio'),
+                icon: Icon(Icons.music_note),
               ),
-              if (trimDuration != null) ...[
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Trimmed length: ${_formatDuration(trimDuration)}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.content_cut_rounded),
-                  label: const Text('Trim Visually'),
-                  onPressed: _sourcePath != null ? _openTrimPreview : null,
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<int?>(
-                decoration: const InputDecoration(
-                  labelText: 'Hardcode Subtitles (Burn-in)',
-                  border: OutlineInputBorder(),
-                ),
-                initialValue: _burnSubtitleIndex,
-                items: [
-                  const DropdownMenuItem<int?>(
-                    value: null,
-                    child: Text('None'),
-                  ),
-                  for (final sub
-                      in _mediaInfo?.subtitleTracks ?? <SubtitleTrack>[])
-                    DropdownMenuItem<int?>(
-                      value: sub.subtitleStreamIndex,
-                      child: Text(sub.label),
-                    ),
-                ],
-                onChanged: (v) => setState(() => _burnSubtitleIndex = v),
+              ButtonSegment(
+                value: OutputType.subtitle,
+                label: Text('Subtitles'),
+                icon: Icon(Icons.subtitles),
               ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Video Tab: Codecs, Rate Control, Aspect Ratio, Resolution, Framerate
-  Widget _buildVideoTab() {
-    final standardAspectRatios = ['16:9', '4:3', '1:1', '9:16', '21:9'];
-    final standardResolutions = [2160, 1440, 1080, 720, 480, 360];
-
-    final fpsOptions = [24, 25, 30, 60];
-    if (_originalFps != null && !fpsOptions.contains(_originalFps)) {
-      fpsOptions.add(_originalFps!);
-    }
-    fpsOptions.sort();
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SectionCard(
-            title: 'Video Configuration',
-            icon: Icons.videocam_outlined,
-            children: [
-              DropdownButtonFormField<VideoCodec>(
-                decoration: const InputDecoration(
-                  labelText: 'Video Codec',
-                  border: OutlineInputBorder(),
-                ),
-                initialValue: _videoCodec,
-                items: VideoCodec.values.map((c) {
-                  final isOrig = c.name == _mediaInfo?.videoCodec;
-                  return DropdownMenuItem(
-                    value: c,
-                    child: Text(
-                      isOrig
-                          ? '${c.name.toUpperCase()} (original)'
-                          : c.name.toUpperCase(),
-                    ),
-                  );
-                }).toList(),
-                onChanged: (v) => setState(() => _videoCodec = v!),
-              ),
-              const SizedBox(height: 8),
-              const EncoderPrefInfo(),
-              if (!_isVideoCopy) ...[
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Rate Control',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: true, label: Text('CRF')),
-                    ButtonSegment(value: false, label: Text('Bitrate')),
-                  ],
-                  selected: {_useCrf},
-                  onSelectionChanged: (selection) =>
-                      setState(() => _useCrf = selection.first),
-                ),
-                if (_useCrf) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 56,
-                        child: Text(
-                          'CRF $_crf',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
-                              ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Slider(
-                          value: _crf.toDouble(),
-                          min: 0,
-                          max: 51,
-                          divisions: 51,
-                          label: _crf.toString(),
-                          onChanged: (v) => setState(() => _crf = v.toInt()),
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    decoration: const InputDecoration(
-                      labelText: 'Video Bitrate (kbps)',
-                      border: OutlineInputBorder(),
-                    ),
-                    initialValue: _videoBitrate.toString(),
-                    keyboardType: TextInputType.number,
-                    onChanged: (v) => _videoBitrate = int.tryParse(v) ?? 4000,
-                  ),
-                ],
-              ],
-            ],
-          ),
-          if (!_isVideoCopy) ...[
-            const SizedBox(height: 16),
-            SectionCard(
-              title: 'Aspect Ratio & Resolution',
-              icon: Icons.aspect_ratio_outlined,
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.crop_rounded),
-                    label: Text(
-                      _hasVisualCrop ? 'Edit Visual Crop' : 'Crop Visually',
-                    ),
-                    onPressed: _sourcePath != null ? _openCropEditor : null,
-                  ),
-                ),
-                if (_hasVisualCrop)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Custom crop applied (${(_cropWidth! * 100).toStringAsFixed(0)}% x ${(_cropHeight! * 100).toStringAsFixed(0)}%)',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String?>(
-                  decoration: const InputDecoration(
-                    labelText: 'Aspect Ratio',
-                    border: OutlineInputBorder(),
-                  ),
-                  initialValue: _aspectRatio,
-                  items: [
-                    DropdownMenuItem<String?>(
-                      value: _originalAspectRatio,
-                      child: Text(
-                        _originalAspectRatio != null
-                            ? '$_originalAspectRatio (Original)'
-                            : 'Original',
-                      ),
-                    ),
-                    for (final ar in standardAspectRatios)
-                      if (ar != _originalAspectRatio)
-                        DropdownMenuItem<String?>(value: ar, child: Text(ar)),
-                  ],
-                  onChanged: (v) => setState(() {
-                    _aspectRatio = v;
-                    // Clear visual crop if using aspect ratio dropdown
-                    _cropLeft = null;
-                    _cropTop = null;
-                    _cropWidth = null;
-                    _cropHeight = null;
-                  }),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int?>(
-                  decoration: const InputDecoration(
-                    labelText: 'Resolution',
-                    border: OutlineInputBorder(),
-                  ),
-                  initialValue: _resolution,
-                  items: [
-                    DropdownMenuItem<int?>(
-                      value: _originalRes,
-                      child: Text(
-                        _originalRes != null
-                            ? '${_originalRes}p (Original)'
-                            : 'Original',
-                      ),
-                    ),
-                    for (final r in standardResolutions)
-                      if (r != _originalRes)
-                        DropdownMenuItem<int?>(value: r, child: Text('${r}p')),
-                  ],
-                  onChanged: (v) => setState(() => _resolution = v),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(
-                    labelText: 'Framerate',
-                    border: OutlineInputBorder(),
-                  ),
-                  initialValue: _framerate,
-                  items: fpsOptions.map((f) {
-                    final isOrig = f == _originalFps;
-                    return DropdownMenuItem<int>(
-                      value: f,
-                      child: Text(isOrig ? '$f fps (original)' : '$f fps'),
-                    );
-                  }).toList(),
-                  onChanged: (v) => setState(() => _framerate = v),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Audio Tab: Audio Codec and Bitrate selection
-  Widget _buildAudioTab() {
-    final standardAudioBitrates = [320, 256, 192, 160, 128, 96];
-    final audioBitrateOptions = [...standardAudioBitrates];
-    if (_originalAudioBitrate != null &&
-        !audioBitrateOptions.contains(_originalAudioBitrate)) {
-      audioBitrateOptions.add(_originalAudioBitrate!);
-    }
-    audioBitrateOptions.sort((a, b) => b.compareTo(a));
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: SectionCard(
-        title: 'Audio Configuration',
-        icon: Icons.graphic_eq_outlined,
-        children: [
-          DropdownButtonFormField<AudioCodec>(
-            decoration: const InputDecoration(
-              labelText: 'Audio Codec',
-              border: OutlineInputBorder(),
-            ),
-            initialValue: _audioCodec,
-            items: AudioCodec.values.map((c) {
-              final isOrig = c.name == _mediaInfo?.audioCodec;
-              return DropdownMenuItem(
-                value: c,
-                child: Text(
-                  isOrig
-                      ? '${c.name.toUpperCase()} (original)'
-                      : c.name.toUpperCase(),
-                ),
-              );
-            }).toList(),
-            onChanged: (v) => setState(() => _audioCodec = v!),
-          ),
-          if (!_isAudioCopy && !_removeAudio) ...[
-            const SizedBox(height: 12),
-            DropdownButtonFormField<int>(
-              decoration: const InputDecoration(
-                labelText: 'Audio Bitrate',
-                border: OutlineInputBorder(),
-              ),
-              initialValue: _audioBitrate,
-              items: audioBitrateOptions.map((b) {
-                final isOrig = b == _originalAudioBitrate;
-                return DropdownMenuItem(
-                  value: b,
-                  child: Text(isOrig ? '$b kbps (original)' : '$b kbps'),
-                );
-              }).toList(),
-              onChanged: (v) => setState(() => _audioBitrate = v!),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Output Tab: Container format and Faststart optimization
-  Widget _buildOutputTab() {
-    final originalContainer = _mapContainer(_mediaInfo?.container);
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: SectionCard(
-        title: 'Container Configuration',
-        icon: Icons.folder_outlined,
-        children: [
-          DropdownButtonFormField<ContainerFormat>(
-            decoration: const InputDecoration(
-              labelText: 'Format',
-              border: OutlineInputBorder(),
-            ),
-            initialValue: _container,
-            items: ContainerFormat.values.map((c) {
-              final isOrig = c == originalContainer;
-              return DropdownMenuItem(
-                value: c,
-                child: Text(
-                  isOrig
-                      ? '${c.name.toUpperCase()} (original)'
-                      : c.name.toUpperCase(),
-                ),
-              );
-            }).toList(),
-            onChanged: (v) {
+            selected: {_outputType},
+            onSelectionChanged: (selection) {
               setState(() {
-                _container = v!;
-                _faststart = v == ContainerFormat.mp4;
+                _outputType = selection.first;
+                if (_outputType != OutputType.video) {
+                  _removeAudio = false;
+                }
               });
             },
           ),
-          if (_container == ContainerFormat.mp4)
-            SwitchListTile(
-              title: const Text('Faststart (Web Optimized)'),
-              subtitle: const Text(
-                'Move moov atom to file start for streaming',
-              ),
-              value: _faststart,
-              onChanged: (v) => setState(() => _faststart = v),
-              contentPadding: EdgeInsets.zero,
-            ),
         ],
       ),
-    );
-  }
-
-  Widget _buildPresetDropdown(List<TranscodePreset> presets) {
-    return DropdownButtonFormField<String>(
-      decoration: const InputDecoration(
-        labelText: 'Preset',
-        border: OutlineInputBorder(),
-      ),
-      initialValue: _selectedPresetId,
-      items: [
-        const DropdownMenuItem(
-          value: 'custom',
-          child: Text('Custom (Match Source)'),
-        ),
-        for (final p in presets)
-          DropdownMenuItem(value: p.id, child: Text(p.name)),
-      ],
-      onChanged: (v) {
-        if (v == null) return;
-        setState(() {
-          _selectedPresetId = v;
-          if (v == 'custom') {
-            _applySourceDefaults();
-          } else {
-            final preset = presets.firstWhere((p) => p.id == v);
-            _applyPreset(preset);
-          }
-        });
-      },
     );
   }
 
@@ -812,7 +560,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
-  /// Opens the visual crop editor and maps the result to internal state.
   Future<void> _openCropEditor() async {
     if (_sourcePath == null) return;
 
@@ -836,7 +583,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         _cropTop = result.top;
         _cropWidth = result.width;
         _cropHeight = result.height;
-        // Clear aspect ratio string since exact crop is applied
         _aspectRatio = null;
       });
     }
@@ -847,6 +593,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     final sourcePath = _sourcePath;
     if (sourcePath == null) return;
+
+    // Subtitle extraction validation
+    if (_outputType == OutputType.subtitle && _burnSubtitleIndex == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a subtitle track to extract.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     final startDur = _parseTimeToDuration(_startController.text);
     final endDur = _parseTimeToDuration(_endController.text);
@@ -867,6 +624,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
       name: 'Custom Encode',
       category: 'Custom',
+      outputType: _outputType,
       videoCodec: _videoCodec,
       crf: !_isVideoCopy && _useCrf ? _crf : null,
       videoBitrate: !_isVideoCopy && !_useCrf ? _videoBitrate : null,

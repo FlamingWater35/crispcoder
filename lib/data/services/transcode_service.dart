@@ -90,6 +90,46 @@ class TranscodeService {
   }) {
     final args = <String>[];
 
+    // Handle Audio Extraction
+    if (preset.outputType == OutputType.audio) {
+      if (preset.startTime != null && preset.startTime!.isNotEmpty) {
+        args.addAll(['-ss', preset.startTime!]);
+      }
+      args.addAll(['-y', '-i', task.sourcePath]);
+      if (preset.endTime != null && preset.endTime!.isNotEmpty) {
+        args.addAll(['-to', preset.endTime!]);
+      }
+      args.addAll(['-vn', '-sn']); // No video, no subtitles
+      if (preset.audioCodec != AudioCodec.copy) {
+        args.addAll([
+          '-c:a',
+          _resolveAudioEncoder(preset.audioCodec),
+          '-b:a',
+          '${preset.audioBitrate}k',
+        ]);
+      } else {
+        args.addAll(['-c:a', 'copy']);
+      }
+      args.add(task.outputPath);
+      return args;
+    }
+
+    // Handle Subtitle Extraction
+    if (preset.outputType == OutputType.subtitle) {
+      if (preset.startTime != null && preset.startTime!.isNotEmpty) {
+        args.addAll(['-ss', preset.startTime!]);
+      }
+      args.addAll(['-y', '-i', task.sourcePath]);
+      if (preset.endTime != null && preset.endTime!.isNotEmpty) {
+        args.addAll(['-to', preset.endTime!]);
+      }
+      final subIndex = preset.burnSubtitleIndex ?? 0;
+      args.addAll(['-map', '0:s:$subIndex', '-an', '-vn', '-c:s', 'srt']);
+      args.add(task.outputPath);
+      return args;
+    }
+
+    // Standard Video Transcode Logic
     if (preset.startTime != null && preset.startTime!.isNotEmpty) {
       args.addAll(['-ss', preset.startTime!]);
     }
@@ -101,7 +141,6 @@ class TranscodeService {
     }
 
     // --- Filter chain ---
-    // Order matters: subtitles → crop (exact or aspect ratio) → scale (resolution) → fps → custom
     final filters = <String>[];
 
     if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
@@ -109,7 +148,6 @@ class TranscodeService {
       filters.add("subtitles='$escapedPath':si=${preset.burnSubtitleIndex}");
     }
 
-    // Exact Visual Crop takes precedence over aspect ratio string
     if (preset.cropWidth != null &&
         preset.cropWidth! > 0 &&
         preset.cropHeight != null &&
@@ -118,7 +156,6 @@ class TranscodeService {
       final h = preset.cropHeight!;
       final x = preset.cropLeft ?? 0.0;
       final y = preset.cropTop ?? 0.0;
-      // crop=iw*W:ih*H:iw*L:ih*T
       filters.add("crop=iw*$w:ih*$h:iw*$x:ih*$y");
     } else if (preset.aspectRatio != null && preset.aspectRatio!.isNotEmpty) {
       final parts = preset.aspectRatio!.split(':');
@@ -131,8 +168,6 @@ class TranscodeService {
       }
     }
 
-    // Scale to target height (resolution) maintaining aspect ratio.
-    // -2 ensures dimensions are divisible by 2.
     if (preset.resolution != null && preset.resolution! > 0) {
       filters.add('scale=-2:${preset.resolution}');
     }

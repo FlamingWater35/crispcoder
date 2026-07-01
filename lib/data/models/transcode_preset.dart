@@ -12,11 +12,15 @@ enum ContainerFormat { mp4, mkv, webm }
 /// Encoder preference: hardware (MediaCodec), software (libx*), or auto.
 enum EncoderPreference { hardware, software, auto }
 
+/// Defines the media type to extract/transcode.
+enum OutputType { video, audio, subtitle }
+
 /// Handbrake-style preset describing the full encode pipeline.
 class TranscodePreset {
   final String id;
   final String name;
   final String category;
+  final OutputType outputType;
   final VideoCodec videoCodec;
   final int? crf;
   final int? videoBitrate;
@@ -48,6 +52,7 @@ class TranscodePreset {
     required this.id,
     required this.name,
     required this.category,
+    this.outputType = OutputType.video,
     required this.videoCodec,
     this.crf,
     this.videoBitrate,
@@ -76,6 +81,7 @@ class TranscodePreset {
     String? id,
     String? name,
     String? category,
+    OutputType? outputType,
     VideoCodec? videoCodec,
     int? crf,
     int? videoBitrate,
@@ -103,6 +109,7 @@ class TranscodePreset {
       id: id ?? this.id,
       name: name ?? this.name,
       category: category ?? this.category,
+      outputType: outputType ?? this.outputType,
       videoCodec: videoCodec ?? this.videoCodec,
       crf: crf ?? this.crf,
       videoBitrate: videoBitrate ?? this.videoBitrate,
@@ -128,11 +135,24 @@ class TranscodePreset {
     );
   }
 
-  String get fileExtension => switch (container) {
-    ContainerFormat.mp4 => 'mp4',
-    ContainerFormat.mkv => 'mkv',
-    ContainerFormat.webm => 'webm',
-  };
+  /// Determines the output file extension based on the selected output type.
+  String get fileExtension {
+    if (outputType == OutputType.audio) {
+      return switch (audioCodec) {
+        AudioCodec.aac => 'm4a',
+        AudioCodec.opus => 'opus',
+        AudioCodec.mp3 => 'mp3',
+        AudioCodec.ac3 => 'ac3',
+        AudioCodec.copy => 'm4a', // Fallback for copied audio
+      };
+    }
+    if (outputType == OutputType.subtitle) return 'srt';
+    return switch (container) {
+      ContainerFormat.mp4 => 'mp4',
+      ContainerFormat.mkv => 'mkv',
+      ContainerFormat.webm => 'webm',
+    };
+  }
 }
 
 /// Manual Hive adapter. Handles schema migrations gracefully.
@@ -146,6 +166,10 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       id: r.readString(),
       name: r.readString(),
       category: r.readString(),
+      // V4 Migration: OutputType added
+      outputType: r.readByte() == 1
+          ? OutputType.values[r.readByte()]
+          : OutputType.video,
       videoCodec: VideoCodec.values[r.readByte()],
       crf: r.readByte() == 1 ? r.readInt() : null,
       videoBitrate: r.readByte() == 1 ? r.readInt() : null,
@@ -164,7 +188,6 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       burnSubtitleIndex: r.readByte() == 1 ? r.readInt() : null,
       startTime: r.readByte() == 1 ? r.readString() : null,
       endTime: r.readByte() == 1 ? r.readString() : null,
-      // V3 Migration: Visual crop fractions added
       cropLeft: r.readByte() == 1 ? r.readDouble() : null,
       cropTop: r.readByte() == 1 ? r.readDouble() : null,
       cropWidth: r.readByte() == 1 ? r.readDouble() : null,
@@ -177,6 +200,8 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
     w.writeString(p.id);
     w.writeString(p.name);
     w.writeString(p.category);
+    w.writeByte(1); // Flag: outputType is present
+    w.writeByte(p.outputType.index);
     w.writeByte(p.videoCodec.index);
     _writeNullableInt(w, p.crf);
     _writeNullableInt(w, p.videoBitrate);
