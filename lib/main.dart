@@ -19,9 +19,9 @@ import 'features/logs/logs_screen.dart';
 class InAppLogOutput extends LogOutput {
   @override
   void output(OutputEvent event) {
-    for (final line in event.lines) {
-      LogsScreen.push(line);
-    }
+    // Join all lines of the log event into a single block before pushing
+    // so the LogsScreen parser can extract the timestamp and message together.
+    LogsScreen.push(event.lines.join('\n'));
   }
 }
 
