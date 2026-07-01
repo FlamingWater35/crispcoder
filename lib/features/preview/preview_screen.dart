@@ -297,15 +297,17 @@ class _PreviewScreenState extends State<PreviewScreen> {
 
   void _onVideoUpdate() {
     final c = _videoController;
-    if (c == null || !c.value.isInitialized || !widget.trimMode) return;
+    if (c == null || !c.value.isInitialized) return;
 
-    if (c.value.isPlaying) {
+    // Confine playback to the trim region while playing
+    if (widget.trimMode && c.value.isPlaying) {
       final pos = c.value.position;
       if (pos >= endDuration || pos < startDuration) {
         c.seekTo(startDuration);
       }
     }
 
+    // Rebuild only when play/pause icon needs to change
     final isPlaying = c.value.isPlaying;
     if (isPlaying != _wasPlaying) {
       _wasPlaying = isPlaying;
@@ -378,6 +380,26 @@ class _PreviewScreenState extends State<PreviewScreen> {
     });
   }
 
+  void _centerCrop() {
+    setState(() {
+      // Center the crop rect based on its current dimensions
+      double newLeft = ((1.0 - _cropRect.width) / 2).clamp(
+        0.0,
+        1.0 - _cropRect.width,
+      );
+      double newTop = ((1.0 - _cropRect.height) / 2).clamp(
+        0.0,
+        1.0 - _cropRect.height,
+      );
+      _cropRect = Rect.fromLTWH(
+        newLeft,
+        newTop,
+        _cropRect.width,
+        _cropRect.height,
+      );
+    });
+  }
+
   void _saveCrop() {
     Navigator.of(context).pop(
       CropResult(
@@ -435,7 +457,8 @@ class _PreviewScreenState extends State<PreviewScreen> {
     return Column(
       children: [
         Expanded(child: _buildVideoArea()),
-        if (widget.trimMode) _buildControls(),
+        // Show playback controls in both Trim and Crop modes
+        if (widget.trimMode || widget.cropMode) _buildControls(),
         if (widget.cropMode) _buildCropControls(),
       ],
     );
@@ -590,14 +613,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        color: theme.colorScheme.surfaceContainerHighest,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant, width: 1),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -628,14 +647,14 @@ class _PreviewScreenState extends State<PreviewScreen> {
             children: [
               IconButton(
                 tooltip: 'Reset crop',
-                icon: const Icon(Icons.refresh),
+                icon: const Icon(Icons.crop_free_rounded),
                 onPressed: _resetCrop,
               ),
-              const SizedBox(width: 16),
-              IconButton.filled(
-                icon: const Icon(Icons.check_rounded),
-                iconSize: 28,
-                onPressed: _saveCrop,
+              const SizedBox(width: 24),
+              IconButton(
+                tooltip: 'Center crop',
+                icon: const Icon(Icons.center_focus_strong_rounded),
+                onPressed: _centerCrop,
               ),
             ],
           ),

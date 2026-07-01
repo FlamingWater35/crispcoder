@@ -110,24 +110,33 @@ class CropOverlay extends StatelessWidget {
             child: CustomPaint(size: Size.infinite, painter: _GridPainter()),
           ),
           // Move Body
-          GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onPanUpdate: (details) {
-              final dx = details.delta.dx / width;
-              final dy = details.delta.dy / height;
-              double newLeft = (cropRect.left + dx).clamp(
-                0.0,
-                1.0 - cropRect.width,
-              );
-              double newTop = (cropRect.top + dy).clamp(
-                0.0,
-                1.0 - cropRect.height,
-              );
-              onCropChanged(
-                Rect.fromLTWH(newLeft, newTop, cropRect.width, cropRect.height),
-              );
-            },
-            child: const ColoredBox(color: Colors.transparent),
+          // Expanded SizedBox ensures hit testing covers the entire crop area
+          MouseRegion(
+            cursor: SystemMouseCursors.move,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanUpdate: (details) {
+                final dx = details.delta.dx / width;
+                final dy = details.delta.dy / height;
+                double newLeft = (cropRect.left + dx).clamp(
+                  0.0,
+                  1.0 - cropRect.width,
+                );
+                double newTop = (cropRect.top + dy).clamp(
+                  0.0,
+                  1.0 - cropRect.height,
+                );
+                onCropChanged(
+                  Rect.fromLTWH(
+                    newLeft,
+                    newTop,
+                    cropRect.width,
+                    cropRect.height,
+                  ),
+                );
+              },
+              child: const SizedBox.expand(),
+            ),
           ),
           // Handles
           _buildHandle(HandlePosition.topLeft, width, height),
@@ -170,66 +179,73 @@ class CropOverlay extends StatelessWidget {
 
     return Align(
       alignment: alignment,
-      child: GestureDetector(
-        onPanUpdate: (details) {
-          double dx = details.delta.dx / width;
-          double dy = details.delta.dy / height;
+      child: MouseRegion(
+        cursor: SystemMouseCursors.resizeUpLeftDownRight,
+        child: GestureDetector(
+          onPanUpdate: (details) {
+            double dx = details.delta.dx / width;
+            double dy = details.delta.dy / height;
 
-          double newLeft = cropRect.left;
-          double newTop = cropRect.top;
-          double newWidth = cropRect.width;
-          double newHeight = cropRect.height;
+            double newLeft = cropRect.left;
+            double newTop = cropRect.top;
+            double newWidth = cropRect.width;
+            double newHeight = cropRect.height;
 
-          if (pos == HandlePosition.topLeft ||
-              pos == HandlePosition.bottomLeft) {
-            newLeft = (cropRect.left + dx).clamp(
-              0.0,
-              cropRect.left + cropRect.width - 0.05,
-            );
-            newWidth = cropRect.width - (newLeft - cropRect.left);
-          } else {
-            newWidth = (cropRect.width + dx).clamp(0.05, 1.0 - cropRect.left);
-          }
-
-          if (pos == HandlePosition.topLeft || pos == HandlePosition.topRight) {
-            newTop = (cropRect.top + dy).clamp(
-              0.0,
-              cropRect.top + cropRect.height - 0.05,
-            );
-            newHeight = cropRect.height - (newTop - cropRect.top);
-          } else {
-            newHeight = (cropRect.height + dy).clamp(0.05, 1.0 - cropRect.top);
-          }
-
-          // Enforce aspect ratio if constrained
-          if (aspectConstraint != null) {
             if (pos == HandlePosition.topLeft ||
                 pos == HandlePosition.bottomLeft) {
-              newWidth = newHeight * aspectConstraint!;
-              if (newLeft + newWidth > 1.0) {
-                newWidth = 1.0 - newLeft;
-                newHeight = newWidth / aspectConstraint!;
-              }
+              newLeft = (cropRect.left + dx).clamp(
+                0.0,
+                cropRect.left + cropRect.width - 0.05,
+              );
+              newWidth = cropRect.width - (newLeft - cropRect.left);
             } else {
-              newHeight = newWidth / aspectConstraint!;
-              if (newTop + newHeight > 1.0) {
-                newHeight = 1.0 - newTop;
+              newWidth = (cropRect.width + dx).clamp(0.05, 1.0 - cropRect.left);
+            }
+
+            if (pos == HandlePosition.topLeft ||
+                pos == HandlePosition.topRight) {
+              newTop = (cropRect.top + dy).clamp(
+                0.0,
+                cropRect.top + cropRect.height - 0.05,
+              );
+              newHeight = cropRect.height - (newTop - cropRect.top);
+            } else {
+              newHeight = (cropRect.height + dy).clamp(
+                0.05,
+                1.0 - cropRect.top,
+              );
+            }
+
+            // Enforce aspect ratio if constrained
+            if (aspectConstraint != null) {
+              if (pos == HandlePosition.topLeft ||
+                  pos == HandlePosition.bottomLeft) {
                 newWidth = newHeight * aspectConstraint!;
+                if (newLeft + newWidth > 1.0) {
+                  newWidth = 1.0 - newLeft;
+                  newHeight = newWidth / aspectConstraint!;
+                }
+              } else {
+                newHeight = newWidth / aspectConstraint!;
+                if (newTop + newHeight > 1.0) {
+                  newHeight = 1.0 - newTop;
+                  newWidth = newHeight * aspectConstraint!;
+                }
               }
             }
-          }
 
-          onCropChanged(Rect.fromLTWH(newLeft, newTop, newWidth, newHeight));
-        },
-        child: Transform.translate(
-          offset: Offset(offsetX, offsetY),
-          child: Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: Colors.blue, width: 2),
-              shape: BoxShape.circle,
+            onCropChanged(Rect.fromLTWH(newLeft, newTop, newWidth, newHeight));
+          },
+          child: Transform.translate(
+            offset: Offset(offsetX, offsetY),
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: Colors.blue, width: 2),
+                shape: BoxShape.circle,
+              ),
             ),
           ),
         ),
