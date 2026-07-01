@@ -461,7 +461,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
             TextButton(onPressed: _saveTrim, child: const Text('Save')),
         ],
       ),
-      body: _buildBody(),
+      body: SafeArea(child: _buildBody()),
     );
   }
 
@@ -533,102 +533,99 @@ class _PreviewScreenState extends State<PreviewScreen> {
   /// Bottom control panel: time labels, trim/seek bar, transport buttons.
   Widget _buildControls() {
     final theme = Theme.of(context);
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Time labels: start (or 00:00:00) and end (or full duration)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  _fmt(widget.trimMode ? startDuration : Duration.zero),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Time labels: start (or 00:00:00) and end (or full duration)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _fmt(widget.trimMode ? startDuration : Duration.zero),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
-                if (widget.trimMode)
-                  Text(
-                    'Trim Region',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  )
-                else
-                  const SizedBox(width: 48),
-                Text(
-                  _fmt(widget.trimMode ? endDuration : _totalDuration),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // Interactive trim / seek bar (isolated for repaint perf)
-            RepaintBoundary(
-              child: _TrimBar(
-                controller: _videoController!,
-                totalDuration: _totalDuration,
-                startFraction: _startFraction,
-                endFraction: _endFraction,
-                trimMode: widget.trimMode,
-                onStartChanged: _onStartChanged,
-                onEndChanged: _onEndChanged,
-                onScrub: _onScrub,
               ),
-            ),
-            const SizedBox(height: 8),
-            // Transport controls
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (widget.trimMode)
-                  IconButton(
-                    tooltip: 'Reset trim',
-                    icon: const Icon(Icons.refresh),
-                    onPressed: _resetTrim,
-                  )
-                else
-                  const SizedBox(width: 48),
-                const SizedBox(width: 16),
-                // Play/pause button — icon reflects current state
-                IconButton.filled(
-                  icon: Icon(
-                    _videoController!.value.isPlaying
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
+              if (widget.trimMode)
+                Text(
+                  'Trim Region',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
                   ),
-                  iconSize: 32,
-                  onPressed: _togglePlayPause,
+                )
+              else
+                const SizedBox(width: 48),
+              Text(
+                _fmt(widget.trimMode ? endDuration : _totalDuration),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
-                const SizedBox(width: 16),
-                if (widget.trimMode)
-                  IconButton(
-                    tooltip: 'Save trim',
-                    icon: const Icon(Icons.check_rounded),
-                    onPressed: _saveTrim,
-                  )
-                else
-                  const SizedBox(width: 48),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Interactive trim / seek bar (isolated for repaint perf)
+          RepaintBoundary(
+            child: _TrimBar(
+              controller: _videoController!,
+              totalDuration: _totalDuration,
+              startFraction: _startFraction,
+              endFraction: _endFraction,
+              trimMode: widget.trimMode,
+              onStartChanged: _onStartChanged,
+              onEndChanged: _onEndChanged,
+              onScrub: _onScrub,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          // Transport controls
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (widget.trimMode)
+                IconButton(
+                  tooltip: 'Reset trim',
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _resetTrim,
+                )
+              else
+                const SizedBox(width: 48),
+              const SizedBox(width: 16),
+              // Play/pause button — icon reflects current state
+              IconButton.filled(
+                icon: Icon(
+                  _videoController!.value.isPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                ),
+                iconSize: 32,
+                onPressed: _togglePlayPause,
+              ),
+              const SizedBox(width: 16),
+              if (widget.trimMode)
+                IconButton(
+                  tooltip: 'Save trim',
+                  icon: const Icon(Icons.check_rounded),
+                  onPressed: _saveTrim,
+                )
+              else
+                const SizedBox(width: 48),
+            ],
+          ),
+        ],
       ),
     );
   }
