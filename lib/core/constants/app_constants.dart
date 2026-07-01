@@ -14,6 +14,10 @@ class AppConstants {
   static const boxPresets = 'presets';
   static const boxQueue = 'queue';
   static const boxHistory = 'history';
+  static const boxSettings = 'app_settings';
+
+  // App settings keys
+  static const keyEncoderPref = 'encoder_preference';
 
   // Foreground service
   static const fgNotificationChannelId = 'videocode_encode';

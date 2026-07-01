@@ -6,6 +6,7 @@ import 'package:logger/logger.dart';
 import 'app.dart';
 import 'data/models/encode_task.dart';
 import 'data/models/transcode_preset.dart';
+import 'data/repositories/app_settings_repository.dart';
 import 'data/repositories/history_repository.dart';
 import 'data/repositories/preset_repository.dart';
 import 'data/repositories/queue_repository.dart';
@@ -40,6 +41,7 @@ Future<void> main() async {
     await PresetRepository.instance.bootstrap();
     await QueueRepository.instance.bootstrap();
     await HistoryRepository.instance.bootstrap();
+    await AppSettingsRepository.instance.bootstrap();
     await ForegroundServiceWrapper.instance.init();
   } catch (e, st) {
     // Bootstrap failure must not hard-crash; allow app to start with in-memory fallback
