@@ -56,6 +56,13 @@ dependencies:
   wakelock_plus: ^1.2.8
   gal: ^2.3.0
   logger: ^2.4.0
+  package_info_plus: ^10.2.0
+
+  # Networking & Updates
+  http: ^1.2.1
+  dio: ^5.4.3+1
+  pub_semver: ^2.1.4
+  open_filex: ^4.4.0
 
   # UI & Feedback
   awesome_snackbar_content: ^0.1.3

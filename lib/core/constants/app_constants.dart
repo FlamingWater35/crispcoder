@@ -1,6 +1,6 @@
 import '../../data/models/transcode_preset.dart';
 
-/// Static FFmpeg flags and Handbrake-style default presets.
+/// Static FFmpeg flags, Hive box names, and GitHub update configuration.
 class AppConstants {
   AppConstants._();
 
@@ -23,6 +23,11 @@ class AppConstants {
   // Foreground service
   static const fgNotificationChannelId = 'videocode_encode';
   static const fgNotificationChannelName = 'Active Encodes';
+
+  // GitHub Releases configuration
+  static const githubOwner = 'FlamingWater35';
+  static const githubRepo = 'crispcoder';
+  static const updateFileName = 'crispcoder_update.apk';
 
   /// Default Handbrake-equivalent presets inserted on first run.
   static List<TranscodePreset> defaultPresets() => [

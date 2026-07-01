@@ -11,6 +11,7 @@ import 'data/repositories/history_repository.dart';
 import 'data/repositories/preset_repository.dart';
 import 'data/repositories/queue_repository.dart';
 import 'data/services/foreground_service_wrapper.dart';
+import 'data/services/update_service.dart';
 
 /// Global logger instance. Use ProviderScope override in tests to swap.
 final loggerProvider = Provider<Logger>((ref) {
@@ -43,6 +44,9 @@ Future<void> main() async {
     await HistoryRepository.instance.bootstrap();
     await AppSettingsRepository.instance.bootstrap();
     await ForegroundServiceWrapper.instance.init();
+
+    // Clean up any leftover downloaded update APKs from previous sessions
+    await UpdateService().cleanupUpdateFile();
   } catch (e, st) {
     // Bootstrap failure must not hard-crash; allow app to start with in-memory fallback
     debugPrint('Bootstrap error: $e\n$st');

@@ -1,20 +1,43 @@
 import 'package:awesome_snackbar_content/awesome_snackbar_content.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../core/utils/snackbar_helper.dart';
 import '../../data/models/transcode_preset.dart';
 import '../../data/services/permission_service.dart';
 import '../../providers/app_settings_provider.dart';
+import '../../providers/app_update_provider.dart';
 
-/// App settings: appearance, encoder preference, permissions, about info.
-class SettingsScreen extends ConsumerWidget {
+/// App settings: appearance, updates, encoder preference, permissions, about.
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  String _currentVersion = '...';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  /// Fetches the current app version for display in the Updates section.
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    setState(() => _currentVersion = info.version);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final settings = ref.watch(appSettingsProvider);
+    final updateState = ref.watch(appUpdateProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -82,6 +105,12 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
+          const SizedBox(height: 24),
+
+          // --- Updates Section ---
+          _SectionHeader(title: 'Updates', icon: Icons.system_update_outlined),
+          const SizedBox(height: 8),
+          _buildUpdateCard(context, updateState),
           const SizedBox(height: 24),
 
           // --- Encoding Section ---
@@ -244,6 +273,183 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  /// Builds the update card with dynamic UI based on the update lifecycle state.
+  Widget _buildUpdateCard(BuildContext context, AppUpdateState state) {
+    final theme = Theme.of(context);
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Current Version: $_currentVersion',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            switch (state.status) {
+              UpdateStatus.idle || UpdateStatus.noUpdate => _buildCheckButton(),
+              UpdateStatus.checking => const Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+              ),
+              UpdateStatus.updateAvailable => _buildAvailableUI(state),
+              UpdateStatus.downloading => _buildDownloadingUI(state),
+              UpdateStatus.readyToInstall => _buildReadyUI(state),
+              UpdateStatus.error => _buildErrorUI(state),
+            },
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Idle/No Update action button.
+  Widget _buildCheckButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.tonalIcon(
+        icon: const Icon(Icons.download_outlined),
+        label: const Text('Check for Updates'),
+        onPressed: () => ref.read(appUpdateProvider.notifier).checkForUpdate(),
+      ),
+    );
+  }
+
+  /// Update available confirmation with release notes.
+  Widget _buildAvailableUI(AppUpdateState state) {
+    final info = state.updateInfo!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Version ${info.version} is available!',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            info.releaseNotes,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => ref.read(appUpdateProvider.notifier).reset(),
+                child: const Text('Later'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: () =>
+                    ref.read(appUpdateProvider.notifier).downloadUpdate(),
+                child: const Text('Download'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Download progress indicator.
+  Widget _buildDownloadingUI(AppUpdateState state) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Downloading... ${(state.downloadProgress * 100).toStringAsFixed(0)}%',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(value: state.downloadProgress),
+      ],
+    );
+  }
+
+  /// Installation prompt requiring confirmation.
+  Widget _buildReadyUI(AppUpdateState state) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Ready to install!',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'The app will close and the Android installer will open. Continue?',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            icon: const Icon(Icons.system_update),
+            label: const Text('Install Now'),
+            onPressed: () async {
+              await OpenFilex.open(state.downloadedPath!);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Error fallback UI with retry option.
+  Widget _buildErrorUI(AppUpdateState state) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Update check failed',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: Theme.of(context).colorScheme.error,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          state.errorMessage ?? 'Unknown error',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.tonal(
+            onPressed: () => ref.read(appUpdateProvider.notifier).reset(),
+            child: const Text('Dismiss'),
+          ),
+        ),
+      ],
     );
   }
 }
