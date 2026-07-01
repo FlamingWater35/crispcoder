@@ -1,11 +1,25 @@
 /// Lightweight representation of a subtitle stream.
 class SubtitleTrack {
-  final int index; // Absolute stream index (e.g., 0, 1, 2)
+  /// Absolute stream index as reported by FFprobe (e.g., 0, 1, 2).
+  /// Used only for display so the label matches FFprobe output.
+  final int index;
+
+  /// Zero-based index among subtitle streams only (0, 1, 2, …).
+  /// Passed to FFmpeg's `subtitles` filter `si` parameter, which
+  /// counts only streams of type AVMEDIA_TYPE_SUBTITLE.
+  final int subtitleStreamIndex;
+
   final String? language;
   final String? codec;
 
-  const SubtitleTrack({required this.index, this.language, this.codec});
+  const SubtitleTrack({
+    required this.index,
+    required this.subtitleStreamIndex,
+    this.language,
+    this.codec,
+  });
 
+  /// Human-readable label using the absolute index for familiarity.
   String get label {
     final lang = language ?? 'Unknown';
     final cod = codec ?? 'sub';

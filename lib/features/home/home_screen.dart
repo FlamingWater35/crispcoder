@@ -31,24 +31,26 @@ class HomeScreen extends ConsumerWidget {
             ),
         ],
       ),
-      body: queue.isEmpty
-          ? const EmptyQueueState()
-          : ListView.builder(
-              itemCount: queue.length,
-              itemBuilder: (context, i) {
-                final task = queue[i];
-                return QueueTile(
-                  key: ValueKey(task.id),
-                  task: task,
-                  onCancel: task.status == EncodeStatus.running
-                      ? () => ref.read(queueProvider.notifier).cancelActive()
-                      : null,
-                  onRemove: task.status != EncodeStatus.running
-                      ? () => ref.read(queueProvider.notifier).remove(task.id)
-                      : null,
-                );
-              },
-            ),
+      body: SafeArea(
+        child: queue.isEmpty
+            ? const EmptyQueueState()
+            : ListView.builder(
+                itemCount: queue.length,
+                itemBuilder: (context, i) {
+                  final task = queue[i];
+                  return QueueTile(
+                    key: ValueKey(task.id),
+                    task: task,
+                    onCancel: task.status == EncodeStatus.running
+                        ? () => ref.read(queueProvider.notifier).cancelActive()
+                        : null,
+                    onRemove: task.status != EncodeStatus.running
+                        ? () => ref.read(queueProvider.notifier).remove(task.id)
+                        : null,
+                  );
+                },
+              ),
+      ),
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
         label: const Text('New Encode'),

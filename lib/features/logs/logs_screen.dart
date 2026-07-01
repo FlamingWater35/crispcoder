@@ -11,16 +11,16 @@ class LogsScreen extends StatefulWidget {
   /// Strips ANSI codes, box-drawing characters, and extra spaces for readability.
   static void push(String line) {
     final cleanLine = line
-        .replaceAll(RegExp(r'\x1B\[[0-9;]*[a-zA-Z]'), '') // ANSI codes
-        .replaceAll(RegExp(r'[┌┐└┘│─]'), '') // Box drawing chars
-        .replaceAll(RegExp(r'\s{2,}'), ' ') // Collapse spaces
+        .replaceAll(RegExp(r'\x1B\[[0-9;]*[a-zA-Z]'), '')
+        .replaceAll(RegExp(r'[┌┐└┘│─]'), '')
+        .replaceAll(RegExp(r'\s{2,}'), ' ')
         .trim();
 
     if (cleanLine.isEmpty) return;
 
     _buffer.add(cleanLine);
     if (_buffer.length > 500) _buffer.removeRange(0, _buffer.length - 500);
-    _notifier.value = _buffer.length; // Trigger UI rebuild
+    _notifier.value = _buffer.length;
   }
 
   /// Clears the log buffer.
@@ -47,26 +47,31 @@ class _LogsScreenState extends State<LogsScreen> {
           ),
         ],
       ),
-      body: ValueListenableBuilder<int>(
-        valueListenable: LogsScreen._notifier,
-        builder: (context, count, _) {
-          if (LogsScreen._buffer.isEmpty) {
-            return const Center(child: Text('No log output yet.'));
-          }
-          return ListView.builder(
-            itemCount: LogsScreen._buffer.length,
-            itemBuilder: (context, i) {
-              final line = LogsScreen._buffer[i];
-              return ListTile(
-                dense: true,
-                title: Text(
-                  line,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                ),
-              );
-            },
-          );
-        },
+      body: SafeArea(
+        child: ValueListenableBuilder<int>(
+          valueListenable: LogsScreen._notifier,
+          builder: (context, count, _) {
+            if (LogsScreen._buffer.isEmpty) {
+              return const Center(child: Text('No log output yet.'));
+            }
+            return ListView.builder(
+              itemCount: LogsScreen._buffer.length,
+              itemBuilder: (context, i) {
+                final line = LogsScreen._buffer[i];
+                return ListTile(
+                  dense: true,
+                  title: Text(
+                    line,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }

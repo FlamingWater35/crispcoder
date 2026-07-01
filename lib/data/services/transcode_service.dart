@@ -42,7 +42,9 @@ class TranscodeService {
   Stream<EncodeProgress> get progressStream => _progressController.stream;
   bool get isRunning => _active != null;
 
-  /// Escapes file paths for safe usage inside FFmpeg filter graphs
+  /// Escapes file paths for safe usage inside FFmpeg filter graphs.
+  /// Handles backslashes, colons, and single quotes that would break
+  /// the filter syntax.
   String _escapeFilterPath(String path) {
     return path
         .replaceAll('\\', '\\\\')
@@ -82,7 +84,17 @@ class TranscodeService {
     };
   }
 
-  /// Builds the FFmpeg argument list for a single-pass encode.
+  /// Builds the FFmpeg argument list for a single encode pass.
+  ///
+  /// Key design decisions:
+  /// - Subtitle burn-in filter is placed **before** scale/fps so subtitles
+  ///   render at the original video resolution, then scale resizes everything
+  ///   together. Placing subtitles after scale would render them at the
+  ///   scaled resolution, causing incorrect positioning/sizing.
+  /// - The `si` parameter receives the **relative** subtitle stream index
+  ///   (0-based among subtitle streams), not the absolute stream index.
+  ///   FFmpeg's `av_find_best_stream` counts only streams of the requested
+  ///   type when `wanted_stream_nb >= 0`.
   List<String> _buildArgs({
     required EncodeTask task,
     required TranscodePreset preset,
@@ -103,18 +115,23 @@ class TranscodeService {
       args.addAll(['-to', preset.endTime!]);
     }
 
-    // Filters: scale, fps, subtitles, custom chain
+    // --- Filter chain ---
+    // Order matters: subtitles → scale → fps → custom
     final filters = <String>[];
+
+    // Burn-in subtitles FIRST so they render at original resolution.
+    // `si` is the 0-based relative index among subtitle streams.
+    if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
+      final escapedPath = _escapeFilterPath(task.sourcePath);
+      filters.add("subtitles='$escapedPath':si=${preset.burnSubtitleIndex}");
+    }
+
     if (preset.resolution != null) {
       final w = preset.resolution!.split('x').first;
       filters.add('scale=$w:-2');
     }
     if (preset.framerate != null) {
       filters.add('fps=${preset.framerate}');
-    }
-    if (preset.burnSubtitleIndex != null) {
-      final escapedPath = _escapeFilterPath(task.sourcePath);
-      filters.add("subtitles='$escapedPath':si=${preset.burnSubtitleIndex}");
     }
     if (preset.filterChain != null && preset.filterChain!.isNotEmpty) {
       filters.add(preset.filterChain!);
@@ -185,6 +202,11 @@ class TranscodeService {
   }
 
   /// Starts an encode. Returns the active session handle for cancellation.
+  ///
+  /// Throws [StateError] if another encode is already running.
+  /// The returned session's [ActiveSession.completion] clears the internal
+  /// `_active` reference when it resolves (success or failure), so the
+  /// caller never needs to manually reset state.
   Future<ActiveSession> start({
     required EncodeTask task,
     required TranscodePreset preset,
@@ -210,6 +232,7 @@ class TranscodeService {
     final tempDir = await PathHelpers.ensureCacheDir('passes');
     final passLogPrefix = p.join(tempDir.path, task.id);
 
+    /// Runs a single FFmpeg pass and returns the session + completion future.
     Future<(FFmpegSession, Future<void>)> runPass(bool isPassOne) async {
       final args = _buildArgs(
         task: task,
@@ -249,17 +272,14 @@ class TranscodeService {
             speed: speed,
           );
 
-          // FFmpeg's getBitrate() can be unreliable (returns 0 or 1 for MediaCodec, or scaled incorrectly).
-          // Calculate it manually from size (bytes) and time (ms) for accuracy.
-          // Formula: (bytes * 8 bits/byte) / (ms / 1000 ms/sec) = bits per second
+          // Calculate bitrate manually from size (bytes) and time (ms).
+          // FFmpeg's getBitrate() can be unreliable for MediaCodec.
           double bitrate = 0;
           if (stats.getTime() > 0) {
             bitrate =
                 (stats.getSize().toDouble() * 8000.0) /
                 stats.getTime().toDouble();
           }
-
-          // Fallback to native bitrate if manual calculation fails
           if (bitrate <= 0) {
             bitrate = stats.getBitrate().toDouble();
           }
@@ -301,11 +321,24 @@ class TranscodeService {
       completion = initialCompleter;
     }
 
+    // Wrap completion so _active is always cleared when the encode finishes,
+    // whether it succeeded, was cancelled, or failed. Without this, a failed
+    // encode leaves _active non-null and the next start() throws StateError.
+    final wrappedCompletion = () async {
+      try {
+        await completion;
+      } finally {
+        if (_active?.taskId == task.id) {
+          _active = null;
+        }
+      }
+    }();
+
     _active = ActiveSession(
       taskId: task.id,
       session: initialSession,
       progress: progressStream,
-      completion: completion,
+      completion: wrappedCompletion,
     );
 
     return _active!;

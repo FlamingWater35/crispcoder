@@ -383,6 +383,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
       ),
       const SizedBox(height: 12),
+      // Subtitle burn-in selector.
+      // Value stores the RELATIVE subtitle stream index (0-based among
+      // subtitle streams) for FFmpeg's `si` parameter. The label still
+      // shows the absolute stream index for familiarity with FFprobe.
       DropdownButtonFormField<int?>(
         decoration: const InputDecoration(
           labelText: 'Hardcode Subtitles (Burn-in)',
@@ -392,7 +396,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         items: [
           const DropdownMenuItem(value: null, child: Text('None')),
           for (final sub in _mediaInfo?.subtitleTracks ?? <SubtitleTrack>[])
-            DropdownMenuItem(value: sub.index, child: Text(sub.label)),
+            DropdownMenuItem(
+              value: sub.subtitleStreamIndex,
+              child: Text(sub.label),
+            ),
         ],
         onChanged: (v) => setState(() => _burnSubtitleIndex = v),
       ),

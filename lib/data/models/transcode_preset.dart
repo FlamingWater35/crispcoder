@@ -34,7 +34,7 @@ class TranscodePreset {
   // New Editing Fields
   final bool removeAudio;
   final int?
-  burnSubtitleIndex; // Absolute stream index (e.g., 2 for Stream #0:2)
+  burnSubtitleIndex; // Relative subtitle stream index (0-based) for FFmpeg's `subtitles` filter `si` parameter
   final String? startTime; // e.g., "00:01:30"
   final String? endTime; // e.g., "00:05:00"
 

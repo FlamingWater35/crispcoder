@@ -12,11 +12,13 @@ class MediaProbeService {
   MediaProbeService(this._ref);
   final Ref _ref;
 
+  /// Probes the given [path] and returns typed [MediaInfo].
+  /// Throws [ProbeFailedException] on any error so callers can surface
+  /// a user-friendly message.
   Future<MediaInfo> probe(String path) async {
     final log = _ref.read(loggerProvider);
     try {
       final session = await FFprobeKit.getMediaInformation(path);
-      // getMediaInformation() is synchronous in this kit version
       final info = session.getMediaInformation();
       if (info == null) {
         final rc = await session.getReturnCode();
@@ -28,6 +30,10 @@ class MediaProbeService {
       StreamInformation? audio;
       final subtitles = <SubtitleTrack>[];
 
+      // Track relative subtitle index separately from absolute stream index.
+      // FFmpeg's `subtitles` filter `si` parameter counts only subtitle streams.
+      int relativeSubIndex = 0;
+
       for (final s in streams) {
         final type = s.getType();
         if (video == null && type == 'video') {
@@ -35,7 +41,6 @@ class MediaProbeService {
         } else if (audio == null && type == 'audio') {
           audio = s;
         } else if (type == 'subtitle') {
-          // Extract language from the stream properties map safely
           final props = s.getAllProperties();
           final tags = props?['tags'];
           final lang = tags is Map ? tags['language']?.toString() : null;
@@ -43,10 +48,12 @@ class MediaProbeService {
           subtitles.add(
             SubtitleTrack(
               index: int.tryParse(s.getIndex()?.toString() ?? '') ?? -1,
+              subtitleStreamIndex: relativeSubIndex,
               language: lang,
               codec: s.getCodec(),
             ),
           );
+          relativeSubIndex++;
         }
       }
       // Fallback to first stream if specific type not found
@@ -65,7 +72,6 @@ class MediaProbeService {
         height: int.tryParse(video?.getHeight()?.toString() ?? ''),
         videoCodec: video?.getCodec(),
         audioCodec: audio?.getCodec(),
-        // Use the robust framerate parser
         frameRate: FormatParsers.parseFramerate(video?.getAverageFrameRate()),
         bitrateBitsPerSec: int.tryParse(info.getBitrate() ?? ''),
         audioBitrateBitsPerSec: int.tryParse(audio?.getBitrate() ?? ''),
