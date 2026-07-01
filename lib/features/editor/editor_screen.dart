@@ -21,8 +21,9 @@ import 'widgets/media_info_card.dart';
 import 'widgets/section_card.dart';
 import 'widgets/source_picker.dart';
 
-/// Source + advanced configuration screen. Validates inputs before enqueue.
-/// Encoder preference is sourced from global app settings, not per-encode.
+/// Source selection + advanced configuration screen. Validates all inputs
+/// before enqueueing a task. The global encoder preference (from Settings)
+/// is used; per-encode override is not exposed.
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({super.key});
 
@@ -67,7 +68,38 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     super.dispose();
   }
 
-  // Helpers to identify original source values for dynamic UI labeling
+  // ---------------------------------------------------------------
+  // Duration ↔ string helpers
+  // ---------------------------------------------------------------
+
+  /// Parses an HH:MM:SS string into a [Duration], or null if empty/invalid.
+  Duration? _parseTimeToDuration(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final regex = RegExp(r'^(\d{1,2}):([0-5]\d):([0-5]\d)$');
+    final match = regex.firstMatch(value);
+    if (match == null) return null;
+    return Duration(
+      hours: int.parse(match.group(1)!),
+      minutes: int.parse(match.group(2)!),
+      seconds: int.parse(match.group(3)!),
+    );
+  }
+
+  /// Formats a [Duration] as HH:MM:SS.
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    return '${h.toString().padLeft(2, '0')}:'
+        '${m.toString().padLeft(2, '0')}:'
+        '${s.toString().padLeft(2, '0')}';
+  }
+
+  // ---------------------------------------------------------------
+  // Source helpers
+  // ---------------------------------------------------------------
+
+  /// Returns the probed resolution string, or empty if unavailable.
   String get _originalRes {
     if (_mediaInfo?.width != null && _mediaInfo?.height != null) {
       return '${_mediaInfo!.width}x${_mediaInfo!.height}';
@@ -94,6 +126,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   }
 
   /// Applies source media properties to the state for the "Custom" preset.
+  /// Sets the default end-time to the full video duration so the trim
+  /// preview has sensible initial bounds.
   void _applySourceDefaults() {
     if (_mediaInfo == null) return;
 
@@ -113,11 +147,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _useCrf = true;
     _crf = 23;
 
-    // Reset editing state
+    // Reset editing state — default end time is full video duration
     _removeAudio = false;
     _burnSubtitleIndex = null;
     _startController.clear();
-    _endController.clear();
+    if (_mediaInfo!.duration != null) {
+      _endController.text = _formatDuration(_mediaInfo!.duration!);
+    } else {
+      _endController.clear();
+    }
   }
 
   /// Applies a selected preset's properties to the editor state.
@@ -153,6 +191,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
     return null;
   }
+
+  // ---------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -260,8 +302,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Builds the editing & subtitles form fields.
+  /// Builds the editing & subtitles form fields: remove-audio toggle,
+  /// trim time inputs with a "Trim Visually" button, subtitle burn-in
+  /// dropdown, and a live trimmed-duration readout.
   List<Widget> _buildEditingChildren() {
+    // Compute current trim duration for the inline readout
+    final startDur = _parseTimeToDuration(_startController.text);
+    final endDur = _parseTimeToDuration(_endController.text);
+    final trimDuration =
+        (startDur != null && endDur != null && endDur > startDur)
+        ? endDur - startDur
+        : null;
+
     return [
       SwitchListTile(
         title: const Text('Remove Audio'),
@@ -271,6 +323,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         contentPadding: EdgeInsets.zero,
       ),
       const SizedBox(height: 12),
+      // Manual trim time entry (HH:MM:SS)
       Row(
         children: [
           Expanded(
@@ -299,6 +352,31 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             ),
           ),
         ],
+      ),
+      // Live trimmed-duration readout
+      if (trimDuration != null) ...[
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Trimmed length: ${_formatDuration(trimDuration)}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+      ],
+      const SizedBox(height: 12),
+      // Visual trim button — opens the real-time trim preview
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.content_cut_rounded),
+          label: const Text('Trim Visually'),
+          onPressed: _sourcePath != null ? _openTrimPreview : null,
+        ),
       ),
       const SizedBox(height: 12),
       DropdownButtonFormField<int?>(
@@ -540,6 +618,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   bool get _canSubmit => _sourcePath != null && !_probing;
 
+  // ---------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------
+
   /// Opens the file picker, requests permissions, and probes the selected file.
   Future<void> _pickSource() async {
     setState(() {
@@ -586,7 +668,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
-  /// Opens the source preview player in a new route.
+  /// Opens the standard Chewie video preview without trimming controls.
   void _openPreview() {
     if (_sourcePath == null) return;
     Navigator.of(context).push(
@@ -594,12 +676,53 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Builds the encode task from current state and enqueues it.
+  /// Opens the real-time trim preview. The video plays (and loops) within
+  /// the selected region; when the user taps "Save" the start/end text
+  /// fields are updated with the new HH:MM:SS values.
+  Future<void> _openTrimPreview() async {
+    if (_sourcePath == null) return;
+
+    final duration = _mediaInfo?.duration;
+    final result = await Navigator.of(context).push<TrimResult>(
+      MaterialPageRoute(
+        builder: (_) => PreviewScreen(
+          path: _sourcePath!,
+          trimMode: true,
+          initialStart: _parseTimeToDuration(_startController.text),
+          initialEnd: _parseTimeToDuration(_endController.text) ?? duration,
+        ),
+      ),
+    );
+
+    // Update text fields only if the user explicitly saved a selection
+    if (result != null && mounted) {
+      setState(() {
+        _startController.text = _formatDuration(result.start);
+        _endController.text = _formatDuration(result.end);
+      });
+    }
+  }
+
+  /// Validates the form, checks the trim range, builds the encode task
+  /// from current state, and enqueues it.
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
     final sourcePath = _sourcePath;
     if (sourcePath == null) return;
+
+    // Validate that start < end when both are set
+    final startDur = _parseTimeToDuration(_startController.text);
+    final endDur = _parseTimeToDuration(_endController.text);
+    if (startDur != null && endDur != null && startDur >= endDur) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Start time must be before end time.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     final settings = ref.read(appSettingsProvider);
     final encoderPref = settings.encoderPreference;
