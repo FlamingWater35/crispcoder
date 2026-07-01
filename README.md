@@ -7,7 +7,7 @@
 ![Hive](https://img.shields.io/badge/Storage-Hive-%23FF8B24?style=for-the-badge&logo=hive&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Android-green?style=for-the-badge)
 
-**CrispCoder** is a modern, Handbrake-equivalent video transcoder for Android devices, built with Flutter and powered by FFmpeg. It allows users to queue multiple video encoding tasks, configure advanced transcode presets, burn in subtitles, trim video durations, and manage hardware/software encoding preferences—all while running reliably in the background.
+**CrispCoder** is a modern video transcoder for Android devices, built with Flutter and powered by FFmpeg. It allows queueing multiple video encoding tasks, configuring advanced transcode presets, burning in subtitles, trimming video durations, and managing hardware/software encoding preferences—all while running reliably in the background.
 
 ---
 
