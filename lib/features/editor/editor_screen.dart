@@ -601,7 +601,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final sourcePath = _sourcePath;
     if (sourcePath == null) return;
 
-    final encoderPref = ref.read(appSettingsProvider).encoderPreference;
+    final settings = ref.read(appSettingsProvider);
+    final encoderPref = settings.encoderPreference;
 
     final preset = TranscodePreset(
       id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
@@ -628,7 +629,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final baseName = PathHelpers.sanitizeFileName(
       p.basenameWithoutExtension(sourcePath),
     );
-    final outDir = p.dirname(sourcePath);
+
+    // Use custom output directory from settings if available, else fallback to source dir
+    final outDir = settings.outputDirectory ?? p.dirname(sourcePath);
+
     final outputPath = PathHelpers.uniqueOutputPath(
       directory: outDir,
       baseName: '${baseName}_crispcoder',

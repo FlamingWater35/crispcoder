@@ -12,14 +12,17 @@ class PermissionService {
     }
   }
 
-  Future<void> requireBatteryExemption() async {
+  /// Requests battery exemption. Returns true if already granted or successfully requested.
+  Future<bool> requireBatteryExemption() async {
     try {
-      final status = await Permission.ignoreBatteryOptimizations.request();
-      if (!status.isGranted) {
-        // Soft requirement: many devices will deny; we warn but don't throw
-      }
+      final status = await Permission.ignoreBatteryOptimizations.status;
+      if (status.isGranted) return true;
+
+      final requested = await Permission.ignoreBatteryOptimizations.request();
+      return requested.isGranted;
     } catch (_) {
       // Some OEMs don't honor this permission; safe to ignore
+      return false;
     }
   }
 

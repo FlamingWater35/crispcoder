@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/utils/format_parsers.dart';
 import '../../../data/models/encode_task.dart';
+import '../../../data/services/gallery_service.dart';
 import '../../../providers/active_encode_provider.dart';
 
 /// Single queue row: status, name, progress bar (when running), actions.
-class QueueTile extends ConsumerWidget {
+/// Expands to reveal details and share options for completed tasks.
+class QueueTile extends ConsumerStatefulWidget {
   const QueueTile({
     super.key,
     required this.task,
@@ -13,13 +16,59 @@ class QueueTile extends ConsumerWidget {
     this.onRemove,
   });
 
-  final EncodeTask task;
   final VoidCallback? onCancel;
   final VoidCallback? onRemove;
+  final EncodeTask task;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<QueueTile> createState() => _QueueTileState();
+}
+
+class _QueueTileState extends ConsumerState<QueueTile> {
+  bool _isExpanded = false;
+
+  /// Builds the expandable details panel showing paths, duration, and share action.
+  Widget _buildDetailsPanel(BuildContext context, EncodeTask task) {
+    final duration = (task.startedAt != null && task.finishedAt != null)
+        ? task.finishedAt!.difference(task.startedAt!)
+        : Duration.zero;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DetailRow(label: 'Source', value: task.sourcePath),
+          const SizedBox(height: 4),
+          _DetailRow(label: 'Output', value: task.outputPath),
+          const SizedBox(height: 4),
+          _DetailRow(
+            label: 'Processed',
+            value: FormatParsers.formatDuration(duration.inSeconds),
+          ),
+          if (task.status == EncodeStatus.completed) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: const Icon(Icons.share_outlined, size: 18),
+                label: const Text('Share'),
+                onPressed: () => ref
+                    .read(galleryServiceProvider)
+                    .share(task.outputPath, subject: task.sourceName),
+              ),
+            ),
+          ],
+          const Divider(height: 16),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final task = widget.task;
     final activeProgress = ref.watch(activeEncodeProvider);
     final progress =
         (task.status == EncodeStatus.running &&
@@ -27,64 +76,87 @@ class QueueTile extends ConsumerWidget {
         ? activeProgress
         : null;
 
+    final isFinished =
+        task.status == EncodeStatus.completed ||
+        task.status == EncodeStatus.failed ||
+        task.status == EncodeStatus.cancelled;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                _StatusIcon(status: task.status),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    task.sourceName ?? task.sourcePath.split('/').last,
-                    style: theme.textTheme.titleMedium,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (onCancel != null)
-                  IconButton(
-                    tooltip: 'Cancel',
-                    icon: const Icon(Icons.stop_circle_outlined),
-                    onPressed: onCancel,
-                  ),
-                if (onRemove != null)
-                  IconButton(
-                    tooltip: 'Remove',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: onRemove,
-                  ),
-              ],
-            ),
-            if (progress != null) ...[
-              const SizedBox(height: 8),
-              LinearProgressIndicator(value: progress.percent / 100),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 12,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: isFinished
+            ? () => setState(() => _isExpanded = !_isExpanded)
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  _Meta(label: progress.formattedPercent),
-                  _Meta(label: progress.formattedFps),
-                  _Meta(label: progress.formattedSpeed),
-                  _Meta(label: 'ETA ${progress.formattedEta}'),
-                  _Meta(label: progress.formattedBitrate),
+                  _StatusIcon(status: task.status),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      task.sourceName ?? task.sourcePath.split('/').last,
+                      style: theme.textTheme.titleMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (widget.onCancel != null)
+                    IconButton(
+                      tooltip: 'Cancel',
+                      icon: const Icon(Icons.stop_circle_outlined),
+                      onPressed: widget.onCancel,
+                    ),
+                  if (widget.onRemove != null)
+                    IconButton(
+                      tooltip: 'Remove',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: widget.onRemove,
+                    ),
+                  if (isFinished)
+                    Icon(
+                      _isExpanded ? Icons.expand_less : Icons.expand_more,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                 ],
               ),
-            ] else if (task.status == EncodeStatus.failed) ...[
-              const SizedBox(height: 8),
-              Text(
-                task.errorMessage ?? 'Transcode failed.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.error,
+              if (progress != null) ...[
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: progress.percent / 100),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    _Meta(label: progress.formattedPercent),
+                    _Meta(label: progress.formattedFps),
+                    _Meta(label: progress.formattedSpeed),
+                    _Meta(label: 'ETA ${progress.formattedEta}'),
+                    _Meta(label: progress.formattedBitrate),
+                  ],
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+              ] else if (task.status == EncodeStatus.failed) ...[
+                const SizedBox(height: 8),
+                Text(
+                  task.errorMessage ?? 'Transcode failed.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                child: _isExpanded && isFinished
+                    ? _buildDetailsPanel(context, task)
+                    : const SizedBox.shrink(),
               ),
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -93,6 +165,7 @@ class QueueTile extends ConsumerWidget {
 
 class _StatusIcon extends StatelessWidget {
   const _StatusIcon({required this.status});
+
   final EncodeStatus status;
 
   @override
@@ -111,6 +184,7 @@ class _StatusIcon extends StatelessWidget {
 
 class _Meta extends StatelessWidget {
   const _Meta({required this.label});
+
   final String label;
 
   @override
@@ -120,6 +194,39 @@ class _Meta extends StatelessWidget {
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
         fontFeatures: const [FontFeature.tabularFigures()],
       ),
+    );
+  }
+}
+
+/// Simple row for displaying key-value details in the expansion panel.
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$label: ',
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: theme.textTheme.bodySmall,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 2,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:awesome_snackbar_content/awesome_snackbar_content.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_filex/open_filex.dart';
@@ -177,6 +178,67 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
+          // --- Storage Section ---
+          _SectionHeader(title: 'Storage', icon: Icons.storage_outlined),
+          const SizedBox(height: 8),
+          Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+              ),
+            ),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.folder_outlined),
+                  title: const Text('Output Directory'),
+                  subtitle: Text(
+                    settings.outputDirectory ?? 'Default (Same as source)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(16),
+                    ),
+                  ),
+                  onTap: () async {
+                    String? selectedDirectory =
+                        await FilePicker.getDirectoryPath();
+                    if (selectedDirectory != null) {
+                      await ref
+                          .read(appSettingsProvider.notifier)
+                          .setOutputDirectory(selectedDirectory);
+                    }
+                  },
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  leading: const Icon(Icons.cleaning_services_outlined),
+                  title: const Text('Reset Output Directory'),
+                  subtitle: const Text('Save outputs alongside source files'),
+                  trailing: const Icon(Icons.chevron_right),
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(
+                      bottom: Radius.circular(16),
+                    ),
+                  ),
+                  enabled: settings.outputDirectory != null,
+                  onTap: () {
+                    ref
+                        .read(appSettingsProvider.notifier)
+                        .setOutputDirectory(null);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           // --- Permissions Section ---
           _SectionHeader(title: 'Permissions', icon: Icons.lock_outline),
           const SizedBox(height: 8),
@@ -239,9 +301,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       bottom: Radius.circular(16),
                     ),
                   ),
-                  onTap: () => ref
-                      .read(permissionServiceProvider)
-                      .requireBatteryExemption(),
+                  onTap: () async {
+                    final granted = await ref
+                        .read(permissionServiceProvider)
+                        .requireBatteryExemption();
+                    if (context.mounted) {
+                      AppSnackbar.show(
+                        context: context,
+                        title: granted ? 'Success!' : 'Denied',
+                        message: granted
+                            ? 'Battery optimizations disabled.'
+                            : 'Permission denied or already disabled.',
+                        contentType: granted
+                            ? ContentType.success
+                            : ContentType.failure,
+                      );
+                    }
+                  },
                 ),
               ],
             ),

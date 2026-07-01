@@ -68,4 +68,22 @@ class AppSettingsRepository {
       // Best-effort write
     }
   }
+
+  /// Returns the custom output directory path; null if not set.
+  String? get outputDirectory {
+    try {
+      return _box.get(AppConstants.keyOutputDirectory) as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Persists the custom output directory path.
+  Future<void> setOutputDirectory(String? path) async {
+    try {
+      await _box.put(AppConstants.keyOutputDirectory, path);
+    } catch (_) {
+      // Best-effort write
+    }
+  }
 }

@@ -8,19 +8,23 @@ import '../data/repositories/app_settings_repository.dart';
 class AppSettingsState {
   final EncoderPreference encoderPreference;
   final ThemeMode themeMode;
+  final String? outputDirectory;
 
   const AppSettingsState({
     required this.encoderPreference,
     required this.themeMode,
+    this.outputDirectory,
   });
 
   AppSettingsState copyWith({
     EncoderPreference? encoderPreference,
     ThemeMode? themeMode,
+    String? outputDirectory,
   }) {
     return AppSettingsState(
       encoderPreference: encoderPreference ?? this.encoderPreference,
       themeMode: themeMode ?? this.themeMode,
+      outputDirectory: outputDirectory ?? this.outputDirectory,
     );
   }
 }
@@ -38,6 +42,7 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
     return AppSettingsState(
       encoderPreference: repo.encoderPreference,
       themeMode: repo.themeMode,
+      outputDirectory: repo.outputDirectory,
     );
   }
 
@@ -51,5 +56,11 @@ class AppSettingsNotifier extends Notifier<AppSettingsState> {
   Future<void> setThemeMode(ThemeMode mode) async {
     await AppSettingsRepository.instance.setThemeMode(mode);
     state = state.copyWith(themeMode: mode);
+  }
+
+  /// Updates and persists the custom output directory.
+  Future<void> setOutputDirectory(String? path) async {
+    await AppSettingsRepository.instance.setOutputDirectory(path);
+    state = state.copyWith(outputDirectory: path);
   }
 }
