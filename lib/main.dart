@@ -49,13 +49,13 @@ Future<void> main() async {
   Hive.registerAdapter(EncodeStatusAdapter());
 
   try {
-    // DB Migration V4: Added OutputType enum
+    // DB Migration V5: Added Video Preset (Speed) property
     final settingsBox = await Hive.openBox(AppConstants.boxSettings);
     final schemaVersion =
         settingsBox.get(AppConstants.keySchemaVersion) as int? ?? 1;
-    if (schemaVersion < 4) {
+    if (schemaVersion < 5) {
       await Hive.deleteBoxFromDisk(AppConstants.boxPresets);
-      await settingsBox.put(AppConstants.keySchemaVersion, 4);
+      await settingsBox.put(AppConstants.keySchemaVersion, 5);
     }
 
     await PathHelpers.clearAppCache();

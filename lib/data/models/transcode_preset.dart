@@ -24,6 +24,8 @@ class TranscodePreset {
   final VideoCodec videoCodec;
   final int? crf;
   final int? videoBitrate;
+  final String?
+  videoPreset; // e.g., 'ultrafast', 'fast', 'medium' for libx264/5
   final int? resolution; // Height in pixels (e.g., 1080, 720)
   final String? aspectRatio; // e.g., "16:9", "4:3", "1:1"
   final int? framerate;
@@ -56,6 +58,7 @@ class TranscodePreset {
     required this.videoCodec,
     this.crf,
     this.videoBitrate,
+    this.videoPreset,
     this.resolution,
     this.aspectRatio,
     this.framerate,
@@ -85,6 +88,7 @@ class TranscodePreset {
     VideoCodec? videoCodec,
     int? crf,
     int? videoBitrate,
+    String? videoPreset,
     int? resolution,
     String? aspectRatio,
     int? framerate,
@@ -113,6 +117,7 @@ class TranscodePreset {
       videoCodec: videoCodec ?? this.videoCodec,
       crf: crf ?? this.crf,
       videoBitrate: videoBitrate ?? this.videoBitrate,
+      videoPreset: videoPreset ?? this.videoPreset,
       resolution: resolution ?? this.resolution,
       aspectRatio: aspectRatio ?? this.aspectRatio,
       framerate: framerate ?? this.framerate,
@@ -143,7 +148,7 @@ class TranscodePreset {
         AudioCodec.opus => 'opus',
         AudioCodec.mp3 => 'mp3',
         AudioCodec.ac3 => 'ac3',
-        AudioCodec.copy => 'm4a', // Fallback for copied audio
+        AudioCodec.copy => 'm4a',
       };
     }
     if (outputType == OutputType.subtitle) return 'srt';
@@ -166,13 +171,14 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       id: r.readString(),
       name: r.readString(),
       category: r.readString(),
-      // V4 Migration: OutputType added
       outputType: r.readByte() == 1
           ? OutputType.values[r.readByte()]
           : OutputType.video,
       videoCodec: VideoCodec.values[r.readByte()],
       crf: r.readByte() == 1 ? r.readInt() : null,
       videoBitrate: r.readByte() == 1 ? r.readInt() : null,
+      // V5 Migration: videoPreset added
+      videoPreset: r.readByte() == 1 ? r.readString() : null,
       resolution: r.readByte() == 1 ? r.readInt() : null,
       aspectRatio: r.readByte() == 1 ? r.readString() : null,
       framerate: r.readByte() == 1 ? r.readInt() : null,
@@ -205,6 +211,7 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
     w.writeByte(p.videoCodec.index);
     _writeNullableInt(w, p.crf);
     _writeNullableInt(w, p.videoBitrate);
+    _writeNullableString(w, p.videoPreset);
     _writeNullableInt(w, p.resolution);
     _writeNullableString(w, p.aspectRatio);
     _writeNullableInt(w, p.framerate);

@@ -49,6 +49,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   bool _useCrf = true;
   int _crf = 23;
   int _videoBitrate = 4000;
+  String? _videoPreset = 'fast'; // Default software encoder preset
   int? _resolution; // Height in pixels (e.g., 1080)
   String? _aspectRatio; // String representation like "16:9"
 
@@ -146,6 +147,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _container = _mapContainer(_mediaInfo!.container);
     _useCrf = true;
     _crf = 23;
+    _videoPreset = 'fast';
 
     _removeAudio = false;
     _burnSubtitleIndex = null;
@@ -168,6 +170,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _useCrf = preset.crf != null;
     _crf = preset.crf ?? 23;
     _videoBitrate = preset.videoBitrate ?? 4000;
+    _videoPreset = preset.videoPreset ?? 'fast';
     _resolution = preset.resolution ?? _mediaInfo?.height;
     _aspectRatio = preset.aspectRatio;
     _framerate = preset.framerate ?? _mediaInfo?.frameRate?.round() ?? 30;
@@ -310,6 +313,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           onCrfChanged: (v) => setState(() => _crf = v.toInt()),
           videoBitrate: _videoBitrate,
           onVideoBitrateChanged: (v) => _videoBitrate = int.tryParse(v) ?? 4000,
+          videoPreset: _videoPreset,
+          onVideoPresetChanged: (v) => setState(() => _videoPreset = v),
           hasVisualCrop: _hasVisualCrop,
           cropWidth: _cropWidth,
           cropHeight: _cropHeight,
@@ -628,6 +633,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       videoCodec: _videoCodec,
       crf: !_isVideoCopy && _useCrf ? _crf : null,
       videoBitrate: !_isVideoCopy && !_useCrf ? _videoBitrate : null,
+      videoPreset: !_isVideoCopy && _useCrf ? _videoPreset : null,
       resolution: _isVideoCopy ? null : _resolution,
       aspectRatio: _isVideoCopy || _hasVisualCrop ? null : _aspectRatio,
       framerate: _isVideoCopy ? null : _framerate,

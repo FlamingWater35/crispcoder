@@ -19,6 +19,8 @@ class VideoTab extends ConsumerWidget {
     required this.onCrfChanged,
     required this.videoBitrate,
     required this.onVideoBitrateChanged,
+    required this.videoPreset,
+    required this.onVideoPresetChanged,
     required this.hasVisualCrop,
     required this.cropWidth,
     required this.cropHeight,
@@ -40,6 +42,8 @@ class VideoTab extends ConsumerWidget {
   final void Function(double) onCrfChanged;
   final int videoBitrate;
   final void Function(String) onVideoBitrateChanged;
+  final String? videoPreset;
+  final void Function(String?) onVideoPresetChanged;
   final bool hasVisualCrop;
   final double? cropWidth;
   final double? cropHeight;
@@ -68,6 +72,15 @@ class VideoTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final standardAspectRatios = ['16:9', '4:3', '1:1', '9:16', '21:9'];
     final standardResolutions = [2160, 1440, 1080, 720, 480, 360];
+    final swPresets = [
+      'ultrafast',
+      'superfast',
+      'veryfast',
+      'faster',
+      'fast',
+      'medium',
+      'slow',
+    ];
 
     final fpsOptions = [24, 25, 30, 60];
     if (_originalFps != null && !fpsOptions.contains(_originalFps)) {
@@ -152,6 +165,21 @@ class VideoTab extends ConsumerWidget {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Encoder Preset Dropdown (Speed vs Compression efficiency)
+                  DropdownButtonFormField<String>(
+                    decoration: const InputDecoration(
+                      labelText: 'Encoder Preset (Speed)',
+                      border: OutlineInputBorder(),
+                      helperText:
+                          'Faster presets use more CPU but process quickly.',
+                    ),
+                    initialValue: videoPreset ?? 'fast',
+                    items: swPresets.map((p) {
+                      return DropdownMenuItem(value: p, child: Text(p));
+                    }).toList(),
+                    onChanged: onVideoPresetChanged,
                   ),
                 ] else ...[
                   const SizedBox(height: 12),

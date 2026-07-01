@@ -130,6 +130,17 @@ class TranscodeService {
     }
 
     // Standard Video Transcode Logic
+
+    // Performance Optimization: Use hardware decoding if aiming for hardware encoding.
+    // This prevents the CPU from decoding frames before sending them to the HW encoder.
+    bool wantsHw =
+        preset.encoderPref == EncoderPreference.hardware ||
+        (preset.encoderPref == EncoderPreference.auto && cap.preferHardware);
+
+    if (wantsHw) {
+      args.addAll(['-hwaccel', 'mediacodec']);
+    }
+
     if (preset.startTime != null && preset.startTime!.isNotEmpty) {
       args.addAll(['-ss', preset.startTime!]);
     }
@@ -193,13 +204,23 @@ class TranscodeService {
             _crfToBitrate(preset.crf, task.totalDurationSeconds) ??
             4000000;
         args.addAll(['-b:v', '${bitrate ~/ 1000}k']);
-      } else if (preset.crf != null) {
-        args.addAll(['-crf', '${preset.crf}']);
-        if (preset.videoCodec == VideoCodec.h264) {
-          args.addAll(['-preset', 'fast']);
+      } else {
+        // Performance Optimization: Explicitly set thread count for software encoders
+        // to fully utilize modern multi-core CPUs.
+        args.addAll(['-threads', '${cap.recommendedThreadCount}']);
+
+        if (preset.crf != null) {
+          args.addAll(['-crf', '${preset.crf}']);
+
+          // Apply selected encoder preset (speed/quality trade-off)
+          final swPreset = preset.videoPreset ?? 'fast';
+          if (preset.videoCodec == VideoCodec.h264 ||
+              preset.videoCodec == VideoCodec.hevc) {
+            args.addAll(['-preset', swPreset]);
+          }
+        } else if (preset.videoBitrate != null) {
+          args.addAll(['-b:v', '${preset.videoBitrate! ~/ 1000}k']);
         }
-      } else if (preset.videoBitrate != null) {
-        args.addAll(['-b:v', '${preset.videoBitrate! ~/ 1000}k']);
       }
     }
 
