@@ -248,6 +248,22 @@ class TranscodeService {
             totalSeconds: totalSeconds,
             speed: speed,
           );
+
+          // FFmpeg's getBitrate() can be unreliable (returns 0 or 1 for MediaCodec, or scaled incorrectly).
+          // Calculate it manually from size (bytes) and time (ms) for accuracy.
+          // Formula: (bytes * 8 bits/byte) / (ms / 1000 ms/sec) = bits per second
+          double bitrate = 0;
+          if (stats.getTime() > 0) {
+            bitrate =
+                (stats.getSize().toDouble() * 8000.0) /
+                stats.getTime().toDouble();
+          }
+
+          // Fallback to native bitrate if manual calculation fails
+          if (bitrate <= 0) {
+            bitrate = stats.getBitrate().toDouble();
+          }
+
           if (!_progressController.isClosed) {
             _progressController.add(
               EncodeProgress(
@@ -256,7 +272,7 @@ class TranscodeService {
                 fps: stats.getVideoFps().toDouble(),
                 speed: speed,
                 etaSeconds: eta,
-                bitrateBitsPerSec: stats.getBitrate().toDouble(),
+                bitrateBitsPerSec: bitrate,
                 frameNumber: stats.getVideoFrameNumber(),
                 bytesProcessed: stats.getSize().toInt(),
               ),
