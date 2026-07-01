@@ -14,6 +14,12 @@ import '../../providers/app_settings_provider.dart';
 import '../../providers/preset_provider.dart';
 import '../../providers/queue_provider.dart';
 import '../preview/preview_screen.dart';
+import 'widgets/editor_action_bar.dart';
+import 'widgets/editor_error_view.dart';
+import 'widgets/encoder_pref_info.dart';
+import 'widgets/media_info_card.dart';
+import 'widgets/section_card.dart';
+import 'widgets/source_picker.dart';
 
 /// Source + advanced configuration screen. Validates inputs before enqueue.
 /// Encoder preference is sourced from global app settings, not per-encode.
@@ -143,7 +149,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('New Encode')),
       body: _error != null
-          ? _ErrorView(message: _error!, onRetry: _clearError)
+          ? EditorErrorView(message: _error!, onRetry: _clearError)
           : SafeArea(
               child: Column(
                 children: [
@@ -153,40 +159,40 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _SourcePicker(
+                          SourcePicker(
                             path: _sourcePath,
                             probing: _probing,
                             onPick: _pickSource,
                           ),
                           if (_mediaInfo != null) ...[
                             const SizedBox(height: 16),
-                            _MediaInfoCard(info: _mediaInfo!),
+                            MediaInfoCard(info: _mediaInfo!),
                             const SizedBox(height: 16),
-                            _Section(
+                            SectionCard(
                               title: 'Preset',
                               icon: Icons.tune_rounded,
                               children: [_buildPresetDropdown(presets)],
                             ),
                             const SizedBox(height: 16),
-                            _Section(
+                            SectionCard(
                               title: 'Editing & Subtitles',
                               icon: Icons.content_cut_rounded,
                               children: _buildEditingChildren(),
                             ),
                             const SizedBox(height: 16),
-                            _Section(
+                            SectionCard(
                               title: 'Video',
                               icon: Icons.videocam_outlined,
                               children: _buildVideoChildren(),
                             ),
                             const SizedBox(height: 16),
-                            _Section(
+                            SectionCard(
                               title: 'Audio',
                               icon: Icons.graphic_eq_outlined,
                               children: _buildAudioChildren(),
                             ),
                             const SizedBox(height: 16),
-                            _Section(
+                            SectionCard(
                               title: 'Container',
                               icon: Icons.folder_outlined,
                               children: _buildContainerChildren(),
@@ -196,7 +202,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       ),
                     ),
                   ),
-                  _buildActionBar(),
+                  EditorActionBar(
+                    canSubmit: _canSubmit,
+                    hasSource: _sourcePath != null,
+                    onPreview: _openPreview,
+                    onSubmit: _submit,
+                  ),
                 ],
               ),
             ),
@@ -324,7 +335,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         onChanged: (v) => setState(() => _videoCodec = v!),
       ),
       const SizedBox(height: 8),
-      _buildEncoderPrefInfo(),
+      const EncoderPrefInfo(),
       if (!_isVideoCopy) ...[
         const SizedBox(height: 12),
         // Rate control segmented selector
@@ -420,48 +431,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     ];
   }
 
-  /// Builds a small info banner showing the current global encoder preference.
-  Widget _buildEncoderPrefInfo() {
-    final theme = Theme.of(context);
-    final pref = ref.watch(appSettingsProvider).encoderPreference;
-    final label = switch (pref) {
-      EncoderPreference.auto => 'Auto',
-      EncoderPreference.hardware => 'Hardware',
-      EncoderPreference.software => 'Software',
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.memory_outlined,
-            size: 16,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Encoder: $label — configurable in Settings',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Icon(
-            Icons.settings_outlined,
-            size: 16,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ],
-      ),
-    );
-  }
-
   /// Builds the audio settings form fields, conditional on codec and remove-audio.
   List<Widget> _buildAudioChildren() {
     final standardAudioBitrates = [320, 256, 192, 160, 128, 96];
@@ -550,47 +519,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           contentPadding: EdgeInsets.zero,
         ),
     ];
-  }
-
-  /// Sticky bottom action bar with Preview and Start Encode buttons.
-  Widget _buildActionBar() {
-    final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surface,
-      elevation: 8,
-      shadowColor: Colors.black26,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.play_arrow_outlined),
-                  label: const Text('Preview'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  onPressed: _sourcePath == null ? null : _openPreview,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  icon: const Icon(Icons.queue),
-                  label: const Text('Start Encode'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  onPressed: _canSubmit ? _submit : null,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   bool get _canSubmit => _sourcePath != null && !_probing;
@@ -706,269 +634,4 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   }
 
   void _clearError() => setState(() => _error = null);
-}
-
-/// A titled card section with an icon header and child form fields.
-class _Section extends StatelessWidget {
-  const _Section({
-    required this.title,
-    required this.icon,
-    required this.children,
-  });
-
-  final String title;
-  final IconData icon;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 20, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ...children,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Source video selector: opens the platform file picker (SAF on Android).
-/// Shows a prominent tappable card with loading and picked states.
-class _SourcePicker extends StatelessWidget {
-  const _SourcePicker({
-    required this.path,
-    required this.probing,
-    required this.onPick,
-  });
-
-  final String? path;
-  final bool probing;
-  final VoidCallback onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isPicked = path != null;
-
-    return Semantics(
-      label: probing
-          ? 'Reading source video'
-          : isPicked
-          ? 'Source video: ${path!.split('/').last}. Tap to change.'
-          : 'Select source video',
-      button: true,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: probing ? null : onPick,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: isPicked
-                  ? theme.colorScheme.primaryContainer.withValues(alpha: 0.3)
-                  : theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.4,
-                    ),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isPicked
-                    ? theme.colorScheme.primary.withValues(alpha: 0.5)
-                    : theme.colorScheme.outlineVariant,
-                width: isPicked ? 1.5 : 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: isPicked
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    probing
-                        ? Icons.hourglass_top
-                        : (isPicked
-                              ? Icons.video_file
-                              : Icons.folder_open_outlined),
-                    color: isPicked
-                        ? theme.colorScheme.onPrimary
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        probing
-                            ? 'Reading source…'
-                            : (isPicked
-                                  ? 'Source video'
-                                  : 'Select source video'),
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        probing
-                            ? 'Analyzing metadata'
-                            : (isPicked
-                                  ? path!.split('/').last
-                                  : 'Tap to choose a video file'),
-                        style: theme.textTheme.bodySmall,
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                    ],
-                  ),
-                ),
-                if (probing)
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: theme.colorScheme.primary,
-                    ),
-                  )
-                else
-                  Icon(
-                    isPicked ? Icons.edit_outlined : Icons.add,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Read-only metadata summary card shown after probing the source.
-class _MediaInfoCard extends StatelessWidget {
-  const _MediaInfoCard({required this.info});
-  final MediaInfo info;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final rows = <(IconData, String, String)>[
-      (Icons.aspect_ratio_outlined, 'Resolution', info.resolutionLabel),
-      (Icons.timer_outlined, 'Duration', info.durationLabel),
-      (Icons.movie_creation_outlined, 'Video', info.videoCodec ?? '—'),
-      (Icons.graphic_eq_outlined, 'Audio', info.audioCodec ?? '—'),
-      (Icons.folder_outlined, 'Container', info.container ?? '—'),
-    ];
-
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        child: Column(
-          children: [
-            for (final (icon, k, v) in rows)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    Icon(
-                      icon,
-                      size: 18,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      k,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      v,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Inline error UI replacing the editor body when a hard error occurs.
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
-            const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Dismiss')),
-          ],
-        ),
-      ),
-    );
-  }
 }
