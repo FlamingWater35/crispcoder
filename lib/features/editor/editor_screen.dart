@@ -200,74 +200,78 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Widget build(BuildContext context) {
     final presets = ref.watch(presetProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('New Encode')),
-      body: _error != null
-          ? EditorErrorView(message: _error!, onRetry: _clearError)
-          : SafeArea(
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SourcePicker(
-                              path: _sourcePath,
-                              probing: _probing,
-                              onPick: _pickSource,
-                            ),
-                            if (_mediaInfo != null) ...[
-                              const SizedBox(height: 16),
-                              MediaInfoCard(info: _mediaInfo!),
-                              const SizedBox(height: 16),
-                              SectionCard(
-                                title: 'Preset',
-                                icon: Icons.tune_rounded,
-                                children: [_buildPresetDropdown(presets)],
+    // Prevent back navigation while probing to avoid orphaned async states
+    return PopScope(
+      canPop: !_probing,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('New Encode')),
+        body: _error != null
+            ? EditorErrorView(message: _error!, onRetry: _clearError)
+            : SafeArea(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SourcePicker(
+                                path: _sourcePath,
+                                probing: _probing,
+                                onPick: _pickSource,
                               ),
-                              const SizedBox(height: 16),
-                              SectionCard(
-                                title: 'Editing & Subtitles',
-                                icon: Icons.content_cut_rounded,
-                                children: _buildEditingChildren(),
-                              ),
-                              const SizedBox(height: 16),
-                              SectionCard(
-                                title: 'Video',
-                                icon: Icons.videocam_outlined,
-                                children: _buildVideoChildren(),
-                              ),
-                              const SizedBox(height: 16),
-                              SectionCard(
-                                title: 'Audio',
-                                icon: Icons.graphic_eq_outlined,
-                                children: _buildAudioChildren(),
-                              ),
-                              const SizedBox(height: 16),
-                              SectionCard(
-                                title: 'Container',
-                                icon: Icons.folder_outlined,
-                                children: _buildContainerChildren(),
-                              ),
+                              if (_mediaInfo != null) ...[
+                                const SizedBox(height: 16),
+                                MediaInfoCard(info: _mediaInfo!),
+                                const SizedBox(height: 16),
+                                SectionCard(
+                                  title: 'Preset',
+                                  icon: Icons.tune_rounded,
+                                  children: [_buildPresetDropdown(presets)],
+                                ),
+                                const SizedBox(height: 16),
+                                SectionCard(
+                                  title: 'Editing & Subtitles',
+                                  icon: Icons.content_cut_rounded,
+                                  children: _buildEditingChildren(),
+                                ),
+                                const SizedBox(height: 16),
+                                SectionCard(
+                                  title: 'Video',
+                                  icon: Icons.videocam_outlined,
+                                  children: _buildVideoChildren(),
+                                ),
+                                const SizedBox(height: 16),
+                                SectionCard(
+                                  title: 'Audio',
+                                  icon: Icons.graphic_eq_outlined,
+                                  children: _buildAudioChildren(),
+                                ),
+                                const SizedBox(height: 16),
+                                SectionCard(
+                                  title: 'Container',
+                                  icon: Icons.folder_outlined,
+                                  children: _buildContainerChildren(),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                    EditorActionBar(
-                      canSubmit: _canSubmit,
-                      hasSource: _sourcePath != null,
-                      onPreview: _openPreview,
-                      onSubmit: _submit,
-                    ),
-                  ],
+                      EditorActionBar(
+                        canSubmit: _canSubmit,
+                        hasSource: _sourcePath != null,
+                        onPreview: _openPreview,
+                        onSubmit: _submit,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
+      ),
     );
   }
 
@@ -623,6 +627,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   // ---------------------------------------------------------------
 
   /// Opens the file picker, requests permissions, and probes the selected file.
+  /// Locks the back button during the async probe to prevent state corruption.
   Future<void> _pickSource() async {
     setState(() {
       _probing = true;
