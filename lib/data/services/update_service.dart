@@ -20,6 +20,7 @@ class UpdateInfo {
 /// Throws descriptive exceptions so the UI can surface user-friendly errors.
 class UpdateService {
   final Dio _dio = Dio();
+  CancelToken? _cancelToken;
 
   /// Fetches the latest release from GitHub and checks against the current version.
   /// Returns UpdateInfo if an update is available, otherwise null.
@@ -79,10 +80,12 @@ class UpdateService {
     try {
       final dir = await getApplicationDocumentsDirectory();
       final savePath = '${dir.path}/${AppConstants.updateFileName}';
+      _cancelToken = CancelToken();
 
       await _dio.download(
         url,
         savePath,
+        cancelToken: _cancelToken,
         onReceiveProgress: (received, total) {
           if (total != -1) {
             onProgress(received / total);
@@ -92,8 +95,22 @@ class UpdateService {
       );
 
       return savePath;
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) {
+        throw Exception('Download cancelled');
+      }
+      throw Exception('Download failed: ${e.message}');
     } catch (e) {
       throw Exception('Download failed: $e');
+    } finally {
+      _cancelToken = null;
+    }
+  }
+
+  /// Cancels an in-progress download safely.
+  void cancelDownload() {
+    if (_cancelToken != null && !_cancelToken!.isCancelled) {
+      _cancelToken!.cancel();
     }
   }
 

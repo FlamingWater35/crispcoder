@@ -31,6 +31,8 @@ class EditorScreen extends ConsumerStatefulWidget {
 }
 
 class _EditorScreenState extends ConsumerState<EditorScreen> {
+  final _formKey = GlobalKey<FormState>();
+
   String? _sourcePath;
   MediaInfo? _mediaInfo;
   bool _probing = false;
@@ -142,6 +144,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _endController.text = preset.endTime ?? '';
   }
 
+  /// Validates time format to ensure FFmpeg receives proper HH:MM:SS input.
+  String? _validateTime(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final regex = RegExp(r'^(\d{1,2}):([0-5]\d):([0-5]\d)$');
+    if (!regex.hasMatch(value)) {
+      return 'Use HH:MM:SS format';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final presets = ref.watch(presetProvider);
@@ -151,64 +163,67 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       body: _error != null
           ? EditorErrorView(message: _error!, onRetry: _clearError)
           : SafeArea(
-              child: Column(
-                children: [
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SourcePicker(
-                            path: _sourcePath,
-                            probing: _probing,
-                            onPick: _pickSource,
-                          ),
-                          if (_mediaInfo != null) ...[
-                            const SizedBox(height: 16),
-                            MediaInfoCard(info: _mediaInfo!),
-                            const SizedBox(height: 16),
-                            SectionCard(
-                              title: 'Preset',
-                              icon: Icons.tune_rounded,
-                              children: [_buildPresetDropdown(presets)],
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SourcePicker(
+                              path: _sourcePath,
+                              probing: _probing,
+                              onPick: _pickSource,
                             ),
-                            const SizedBox(height: 16),
-                            SectionCard(
-                              title: 'Editing & Subtitles',
-                              icon: Icons.content_cut_rounded,
-                              children: _buildEditingChildren(),
-                            ),
-                            const SizedBox(height: 16),
-                            SectionCard(
-                              title: 'Video',
-                              icon: Icons.videocam_outlined,
-                              children: _buildVideoChildren(),
-                            ),
-                            const SizedBox(height: 16),
-                            SectionCard(
-                              title: 'Audio',
-                              icon: Icons.graphic_eq_outlined,
-                              children: _buildAudioChildren(),
-                            ),
-                            const SizedBox(height: 16),
-                            SectionCard(
-                              title: 'Container',
-                              icon: Icons.folder_outlined,
-                              children: _buildContainerChildren(),
-                            ),
+                            if (_mediaInfo != null) ...[
+                              const SizedBox(height: 16),
+                              MediaInfoCard(info: _mediaInfo!),
+                              const SizedBox(height: 16),
+                              SectionCard(
+                                title: 'Preset',
+                                icon: Icons.tune_rounded,
+                                children: [_buildPresetDropdown(presets)],
+                              ),
+                              const SizedBox(height: 16),
+                              SectionCard(
+                                title: 'Editing & Subtitles',
+                                icon: Icons.content_cut_rounded,
+                                children: _buildEditingChildren(),
+                              ),
+                              const SizedBox(height: 16),
+                              SectionCard(
+                                title: 'Video',
+                                icon: Icons.videocam_outlined,
+                                children: _buildVideoChildren(),
+                              ),
+                              const SizedBox(height: 16),
+                              SectionCard(
+                                title: 'Audio',
+                                icon: Icons.graphic_eq_outlined,
+                                children: _buildAudioChildren(),
+                              ),
+                              const SizedBox(height: 16),
+                              SectionCard(
+                                title: 'Container',
+                                icon: Icons.folder_outlined,
+                                children: _buildContainerChildren(),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                  EditorActionBar(
-                    canSubmit: _canSubmit,
-                    hasSource: _sourcePath != null,
-                    onPreview: _openPreview,
-                    onSubmit: _submit,
-                  ),
-                ],
+                    EditorActionBar(
+                      canSubmit: _canSubmit,
+                      hasSource: _sourcePath != null,
+                      onPreview: _openPreview,
+                      onSubmit: _submit,
+                    ),
+                  ],
+                ),
               ),
             ),
     );
@@ -261,6 +276,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           Expanded(
             child: TextFormField(
               controller: _startController,
+              validator: _validateTime,
               decoration: const InputDecoration(
                 labelText: 'Start Time',
                 hintText: '00:00:00',
@@ -273,6 +289,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           Expanded(
             child: TextFormField(
               controller: _endController,
+              validator: _validateTime,
               decoration: const InputDecoration(
                 labelText: 'End Time',
                 hintText: '00:00:00',
@@ -579,6 +596,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   /// Builds the encode task from current state and enqueues it.
   Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
     final sourcePath = _sourcePath;
     if (sourcePath == null) return;
 

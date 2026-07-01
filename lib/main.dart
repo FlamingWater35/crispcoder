@@ -12,6 +12,17 @@ import 'data/repositories/preset_repository.dart';
 import 'data/repositories/queue_repository.dart';
 import 'data/services/foreground_service_wrapper.dart';
 import 'data/services/update_service.dart';
+import 'features/logs/logs_screen.dart';
+
+/// Custom log output that forwards lines to the in-app LogsScreen buffer.
+class InAppLogOutput extends LogOutput {
+  @override
+  void output(OutputEvent event) {
+    for (final line in event.lines) {
+      LogsScreen.push(line);
+    }
+  }
+}
 
 /// Global logger instance. Use ProviderScope override in tests to swap.
 final loggerProvider = Provider<Logger>((ref) {
@@ -25,7 +36,7 @@ final loggerProvider = Provider<Logger>((ref) {
       printEmojis: false,
       dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
     ),
-    output: ConsoleOutput(),
+    output: InAppLogOutput(),
   );
 });
 

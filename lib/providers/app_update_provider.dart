@@ -109,15 +109,21 @@ class AppUpdateNotifier extends Notifier<AppUpdateState> {
         downloadedPath: path,
       );
     } catch (e) {
-      state = state.copyWith(
-        status: UpdateStatus.error,
-        errorMessage: e.toString(),
-      );
+      // If the user explicitly cancelled, revert to updateAvailable state
+      if (e.toString().contains('Download cancelled')) {
+        state = state.copyWith(status: UpdateStatus.updateAvailable);
+      } else {
+        state = state.copyWith(
+          status: UpdateStatus.error,
+          errorMessage: e.toString(),
+        );
+      }
     }
   }
 
-  /// Resets state back to idle (e.g., user dismisses the UI).
+  /// Resets state back to idle and cancels any background downloads.
   void reset() {
+    _service.cancelDownload();
     state = const AppUpdateState();
   }
 }
