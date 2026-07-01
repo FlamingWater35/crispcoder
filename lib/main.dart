@@ -4,6 +4,7 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:logger/logger.dart';
 
 import 'app.dart';
+import 'core/utils/path_helpers.dart';
 import 'data/models/encode_task.dart';
 import 'data/models/transcode_preset.dart';
 import 'data/repositories/app_settings_repository.dart';
@@ -51,6 +52,9 @@ Future<void> main() async {
   Hive.registerAdapter(EncodeStatusAdapter());
 
   try {
+    // Clear temporary video cache to prevent unbounded storage growth
+    await PathHelpers.clearAppCache();
+
     await PresetRepository.instance.bootstrap();
     await QueueRepository.instance.bootstrap();
     await HistoryRepository.instance.bootstrap();

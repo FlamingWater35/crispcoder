@@ -1,7 +1,10 @@
 import 'dart:io';
 
 import 'package:chewie/chewie.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 /// Trim selection returned when the user saves in trim mode.
@@ -15,8 +18,9 @@ class TrimResult {
 /// Video preview screen with optional real-time trimming.
 ///
 /// In standard mode, it uses Chewie for a familiar, fully-featured video
-/// player experience. In [trimMode], it bypasses Chewie for a custom
-/// progress bar with two draggable handles to set start/end points.
+/// player experience, including embedded subtitle extraction and native HDR
+/// playback. In [trimMode], it bypasses Chewie for a custom progress bar with
+/// two draggable handles to set start/end points.
 class PreviewScreen extends StatefulWidget {
   const PreviewScreen({
     super.key,
@@ -82,6 +86,8 @@ class _PreviewScreenState extends State<PreviewScreen> {
         );
       }
 
+      controller.addListener(_onVideoUpdate);
+
       if (widget.trimMode) {
         // Trim Mode Setup
         if (widget.initialStart != null) {
@@ -92,17 +98,52 @@ class _PreviewScreenState extends State<PreviewScreen> {
         }
         _enforceMinGap();
 
-        controller.addListener(_onVideoUpdate);
         await controller.setLooping(false); // looping handled manually
         await controller.seekTo(startDuration);
         await controller.play();
       } else {
         // Standard Preview Setup (Chewie)
+        // Extract embedded subtitles to a list of Subtitle objects
+        final subsList = await _extractSubtitles(widget.path);
+
         _chewieController = ChewieController(
           videoPlayerController: controller,
           autoPlay: true,
           looping: false,
           showControls: true,
+          showSubtitles: subsList.isNotEmpty,
+          subtitle: Subtitles(subsList),
+          subtitleBuilder: (context, text) {
+            // In landscape (fullscreen), keep it near the bottom.
+            // In portrait, lift it higher to avoid the control bar.
+            final isLandscape =
+                MediaQuery.of(context).size.width >
+                MediaQuery.of(context).size.height;
+            final bottomPadding = isLandscape ? 20.0 : 120.0;
+
+            return Padding(
+              padding: EdgeInsets.only(bottom: bottomPadding),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          },
           errorBuilder: (ctx, msg) => Center(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -136,6 +177,113 @@ class _PreviewScreenState extends State<PreviewScreen> {
     _chewieController?.dispose();
     _videoController?.dispose();
     super.dispose();
+  }
+
+  // ---------------------------------------------------------------
+  // Subtitle Extraction (Chewie Mode Only)
+  // ---------------------------------------------------------------
+
+  /// Extracts the first embedded subtitle track to a list of [Subtitle] objects.
+  ///
+  /// FFmpeg handles the heavy lifting of demuxing the container and
+  /// converting the subtitle format to SRT. This is required because
+  /// Chewie/video_player cannot natively select and render arbitrary
+  /// embedded text tracks on all platforms.
+  Future<List<Subtitle>> _extractSubtitles(String path) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final srtPath =
+          '${tempDir.path}/sub_${DateTime.now().millisecondsSinceEpoch}.srt';
+
+      // Extract first subtitle stream (-map 0:s:0) to SRT format
+      final session = await FFmpegKit.execute(
+        '-i "$path" -map 0:s:0 -c:s srt "$srtPath"',
+      );
+      final rc = await session.getReturnCode();
+
+      if (ReturnCode.isSuccess(rc)) {
+        final file = File(srtPath);
+        if (await file.exists()) {
+          final srtContent = await file.readAsString();
+          await file.delete(); // cleanup temp file
+
+          if (srtContent.trim().isEmpty) return [];
+          return _parseSrt(srtContent);
+        }
+      }
+    } catch (_) {
+      // Swallow extraction errors; subtitle support is best-effort
+    }
+    return [];
+  }
+
+  /// Strips ASS/SSA override blocks, HTML tags, and decodes entities.
+  String _cleanSubtitleText(String text) {
+    // Remove ASS/SSA override blocks like {\an8}
+    var cleaned = text.replaceAll(RegExp(r'\{[^}]*\}'), '');
+    // Remove HTML tags like <i>, <b>, <font>
+    cleaned = cleaned.replaceAll(RegExp(r'<[^>]*>'), '');
+    // Decode basic HTML entities
+    cleaned = cleaned
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&#39;', "'");
+    return cleaned.trim();
+  }
+
+  /// Parses a raw SRT string into Chewie's [Subtitle] data model list.
+  List<Subtitle> _parseSrt(String srt) {
+    final lines = srt.split('\n');
+    final subtitles = <Subtitle>[];
+    int i = 0;
+
+    while (i < lines.length) {
+      if (lines[i].trim().isEmpty) {
+        i++;
+        continue;
+      }
+      i++; // Skip index number
+      if (i >= lines.length) break;
+
+      final timeMatch = RegExp(
+        r'(\d{2}:\d{2}:\d{2},\d{3})\s-->\s(\d{2}:\d{2}:\d{2},\d{3})',
+      ).firstMatch(lines[i]);
+
+      if (timeMatch == null) break;
+      final start = _parseSrtTime(timeMatch.group(1)!);
+      final end = _parseSrtTime(timeMatch.group(2)!);
+      i++;
+
+      final textLines = <String>[];
+      while (i < lines.length && lines[i].trim().isNotEmpty) {
+        // Clean each line before adding it
+        textLines.add(_cleanSubtitleText(lines[i]));
+        i++;
+      }
+
+      final text = textLines.where((l) => l.isNotEmpty).join('\n');
+      if (text.isEmpty) continue;
+
+      subtitles.add(
+        Subtitle(start: start, end: end, text: text, index: subtitles.length),
+      );
+    }
+    return subtitles;
+  }
+
+  /// Formats an SRT timestamp (HH:MM:SS,mmm) into a [Duration].
+  Duration _parseSrtTime(String t) {
+    final parts = t.split(':');
+    final secsParts = parts[2].split(',');
+    return Duration(
+      hours: int.parse(parts[0]),
+      minutes: int.parse(parts[1]),
+      seconds: int.parse(secsParts[0]),
+      milliseconds: int.parse(secsParts[1]),
+    );
   }
 
   // ---------------------------------------------------------------
@@ -191,10 +339,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
   /// rebuild only when the play/pause state actually changes.
   void _onVideoUpdate() {
     final c = _videoController;
-    if (c == null || !c.value.isInitialized) return;
+    if (c == null || !c.value.isInitialized || !widget.trimMode) return;
 
     // Confine playback to the trim region while playing
-    if (widget.trimMode && c.value.isPlaying) {
+    if (c.value.isPlaying) {
       final pos = c.value.position;
       if (pos >= endDuration || pos < startDuration) {
         c.seekTo(startDuration);
@@ -325,7 +473,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
       return _buildError();
     }
 
-    // Standard mode: defer entirely to Chewie's own UI and controls
+    // Standard mode: defer entirely to Chewie's own UI, controls, and subtitle renderer
     if (!widget.trimMode) {
       if (_chewieController == null) return _buildError();
       return Chewie(controller: _chewieController!);

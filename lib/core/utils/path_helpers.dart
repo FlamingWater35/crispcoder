@@ -24,6 +24,27 @@ class PathHelpers {
     }
   }
 
+  /// Clears the app's temporary cache directory to prevent storage bloat
+  /// from leftover FFmpeg logs, intermediate video files, and two-pass
+  /// encoding assets. Safe to call on startup; OS will recreate files as needed.
+  static Future<void> clearAppCache() async {
+    try {
+      final base = await getTemporaryDirectory();
+      if (base.existsSync()) {
+        // Delete contents recursively, but keep the base directory itself
+        for (final entity in base.listSync()) {
+          try {
+            await entity.delete(recursive: true);
+          } catch (_) {
+            // Ignore errors for individual files (e.g., locked files)
+          }
+        }
+      }
+    } catch (_) {
+      // Best-effort cleanup
+    }
+  }
+
   /// Builds a non-colliding output filename by appending (1), (2), etc.
   static String uniqueOutputPath({
     required String directory,
