@@ -4,6 +4,7 @@ import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:logger/logger.dart';
 
 import 'app.dart';
+import 'core/constants/app_constants.dart';
 import 'core/utils/path_helpers.dart';
 import 'data/models/encode_task.dart';
 import 'data/models/transcode_preset.dart';
@@ -19,13 +20,11 @@ import 'features/logs/logs_screen.dart';
 class InAppLogOutput extends LogOutput {
   @override
   void output(OutputEvent event) {
-    // Join all lines of the log event into a single block before pushing
-    // so the LogsScreen parser can extract the timestamp and message together.
     LogsScreen.push(event.lines.join('\n'));
   }
 }
 
-/// Global logger instance. Use ProviderScope override in tests to swap.
+/// Global logger instance.
 final loggerProvider = Provider<Logger>((ref) {
   return Logger(
     filter: ProductionFilter(),
@@ -33,11 +32,10 @@ final loggerProvider = Provider<Logger>((ref) {
       methodCount: 0,
       errorMethodCount: 6,
       lineLength: 100,
-      colors: false, // Disable ANSI colors for clean console and UI output
+      colors: false,
       printEmojis: false,
       dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
     ),
-    // Send logs to both the standard console and the in-app UI
     output: MultiOutput([ConsoleOutput(), InAppLogOutput()]),
   );
 });
@@ -45,14 +43,21 @@ final loggerProvider = Provider<Logger>((ref) {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Hive before any repository reads boxes
   await Hive.initFlutter();
   Hive.registerAdapter(TranscodePresetAdapter());
   Hive.registerAdapter(EncodeTaskAdapter());
   Hive.registerAdapter(EncodeStatusAdapter());
 
   try {
-    // Clear temporary video cache to prevent unbounded storage growth
+    // DB Migration V3: Added exact visual crop dimensions
+    final settingsBox = await Hive.openBox(AppConstants.boxSettings);
+    final schemaVersion =
+        settingsBox.get(AppConstants.keySchemaVersion) as int? ?? 1;
+    if (schemaVersion < 3) {
+      await Hive.deleteBoxFromDisk(AppConstants.boxPresets);
+      await settingsBox.put(AppConstants.keySchemaVersion, 3);
+    }
+
     await PathHelpers.clearAppCache();
 
     await PresetRepository.instance.bootstrap();
@@ -61,10 +66,8 @@ Future<void> main() async {
     await AppSettingsRepository.instance.bootstrap();
     await ForegroundServiceWrapper.instance.init();
 
-    // Clean up any leftover downloaded update APKs from previous sessions
     await UpdateService().cleanupUpdateFile();
   } catch (e, st) {
-    // Bootstrap failure must not hard-crash; allow app to start with in-memory fallback
     debugPrint('Bootstrap error: $e\n$st');
   }
 

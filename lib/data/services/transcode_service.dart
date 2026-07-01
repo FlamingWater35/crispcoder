@@ -31,7 +31,6 @@ class ActiveSession {
 }
 
 /// Builds FFmpeg commands and runs sessions with progress + log streaming.
-/// Never invoke FFmpeg directly from UI — go through this service.
 class TranscodeService {
   TranscodeService(this._ref);
   final Ref _ref;
@@ -43,8 +42,6 @@ class TranscodeService {
   bool get isRunning => _active != null;
 
   /// Escapes file paths for safe usage inside FFmpeg filter graphs.
-  /// Handles backslashes, colons, and single quotes that would break
-  /// the filter syntax.
   String _escapeFilterPath(String path) {
     return path
         .replaceAll('\\', '\\\\')
@@ -53,7 +50,6 @@ class TranscodeService {
   }
 
   /// Resolves the actual FFmpeg video encoder name based on user preference
-  /// and device capability. Falls back HW → SW on mismatch.
   String _resolveVideoEncoder(TranscodePreset preset, DeviceCapability cap) {
     bool wantsHw =
         preset.encoderPref == EncoderPreference.hardware ||
@@ -85,16 +81,6 @@ class TranscodeService {
   }
 
   /// Builds the FFmpeg argument list for a single encode pass.
-  ///
-  /// Key design decisions:
-  /// - Subtitle burn-in filter is placed **before** scale/fps so subtitles
-  ///   render at the original video resolution, then scale resizes everything
-  ///   together. Placing subtitles after scale would render them at the
-  ///   scaled resolution, causing incorrect positioning/sizing.
-  /// - The `si` parameter receives the **relative** subtitle stream index
-  ///   (0-based among subtitle streams), not the absolute stream index.
-  ///   FFmpeg's `av_find_best_stream` counts only streams of the requested
-  ///   type when `wanted_stream_nb >= 0`.
   List<String> _buildArgs({
     required EncodeTask task,
     required TranscodePreset preset,
@@ -104,7 +90,6 @@ class TranscodeService {
   }) {
     final args = <String>[];
 
-    // Trimming: Seek before input for performance, but requires re-encoding
     if (preset.startTime != null && preset.startTime!.isNotEmpty) {
       args.addAll(['-ss', preset.startTime!]);
     }
@@ -116,20 +101,42 @@ class TranscodeService {
     }
 
     // --- Filter chain ---
-    // Order matters: subtitles → scale → fps → custom
+    // Order matters: subtitles → crop (exact or aspect ratio) → scale (resolution) → fps → custom
     final filters = <String>[];
 
-    // Burn-in subtitles FIRST so they render at original resolution.
-    // `si` is the 0-based relative index among subtitle streams.
     if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
       final escapedPath = _escapeFilterPath(task.sourcePath);
       filters.add("subtitles='$escapedPath':si=${preset.burnSubtitleIndex}");
     }
 
-    if (preset.resolution != null) {
-      final w = preset.resolution!.split('x').first;
-      filters.add('scale=$w:-2');
+    // Exact Visual Crop takes precedence over aspect ratio string
+    if (preset.cropWidth != null &&
+        preset.cropWidth! > 0 &&
+        preset.cropHeight != null &&
+        preset.cropHeight! > 0) {
+      final w = preset.cropWidth!;
+      final h = preset.cropHeight!;
+      final x = preset.cropLeft ?? 0.0;
+      final y = preset.cropTop ?? 0.0;
+      // crop=iw*W:ih*H:iw*L:ih*T
+      filters.add("crop=iw*$w:ih*$h:iw*$x:ih*$y");
+    } else if (preset.aspectRatio != null && preset.aspectRatio!.isNotEmpty) {
+      final parts = preset.aspectRatio!.split(':');
+      if (parts.length == 2) {
+        final arW = double.tryParse(parts[0]) ?? 1;
+        final arH = double.tryParse(parts[1]) ?? 1;
+        if (arW > 0 && arH > 0) {
+          filters.add("crop=min(iw\\,ih*$arW/$arH):min(ih\\,iw*$arH/$arW)");
+        }
+      }
     }
+
+    // Scale to target height (resolution) maintaining aspect ratio.
+    // -2 ensures dimensions are divisible by 2.
+    if (preset.resolution != null && preset.resolution! > 0) {
+      filters.add('scale=-2:${preset.resolution}');
+    }
+
     if (preset.framerate != null) {
       filters.add('fps=${preset.framerate}');
     }
@@ -193,7 +200,7 @@ class TranscodeService {
     return args;
   }
 
-  /// Rough CRF → target bitrate (bps) for HW fallback. Approximation only.
+  /// Rough CRF → target bitrate (bps) for HW fallback.
   int? _crfToBitrate(int? crf, double durationSeconds) {
     if (crf == null) return null;
     final base = 8000000;
@@ -202,11 +209,6 @@ class TranscodeService {
   }
 
   /// Starts an encode. Returns the active session handle for cancellation.
-  ///
-  /// Throws [StateError] if another encode is already running.
-  /// The returned session's [ActiveSession.completion] clears the internal
-  /// `_active` reference when it resolves (success or failure), so the
-  /// caller never needs to manually reset state.
   Future<ActiveSession> start({
     required EncodeTask task,
     required TranscodePreset preset,
@@ -232,7 +234,6 @@ class TranscodeService {
     final tempDir = await PathHelpers.ensureCacheDir('passes');
     final passLogPrefix = p.join(tempDir.path, task.id);
 
-    /// Runs a single FFmpeg pass and returns the session + completion future.
     Future<(FFmpegSession, Future<void>)> runPass(bool isPassOne) async {
       final args = _buildArgs(
         task: task,
@@ -272,8 +273,6 @@ class TranscodeService {
             speed: speed,
           );
 
-          // Calculate bitrate manually from size (bytes) and time (ms).
-          // FFmpeg's getBitrate() can be unreliable for MediaCodec.
           double bitrate = 0;
           if (stats.getTime() > 0) {
             bitrate =
@@ -321,9 +320,6 @@ class TranscodeService {
       completion = initialCompleter;
     }
 
-    // Wrap completion so _active is always cleared when the encode finishes,
-    // whether it succeeded, was cancelled, or failed. Without this, a failed
-    // encode leaves _active non-null and the next start() throws StateError.
     final wrappedCompletion = () async {
       try {
         await completion;
@@ -344,19 +340,16 @@ class TranscodeService {
     return _active!;
   }
 
-  /// Cancels the active session. Resolves when FFmpeg has stopped.
+  /// Cancels the active session.
   Future<void> cancel() async {
     final a = _active;
     _active = null;
     if (a == null) return;
     try {
       await FFmpegKit.cancel(a.session.getSessionId());
-    } catch (_) {
-      // Best-effort; session may already be gone
-    }
+    } catch (_) {}
   }
 
-  /// Releases stream resources. Safe to call repeatedly.
   void dispose() {
     _progressController.close();
   }

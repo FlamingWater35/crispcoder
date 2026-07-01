@@ -13,6 +13,7 @@ import '../../data/services/permission_service.dart';
 import '../../providers/app_settings_provider.dart';
 import '../../providers/preset_provider.dart';
 import '../../providers/queue_provider.dart';
+import '../preview/preview_models.dart';
 import '../preview/preview_screen.dart';
 import 'widgets/editor_action_bar.dart';
 import 'widgets/editor_error_view.dart';
@@ -22,8 +23,7 @@ import 'widgets/section_card.dart';
 import 'widgets/source_picker.dart';
 
 /// Source selection + advanced configuration screen. Validates all inputs
-/// before enqueueing a task. The global encoder preference (from Settings)
-/// is used; per-encode override is not exposed.
+/// before enqueueing a task.
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({super.key});
 
@@ -44,11 +44,19 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   VideoCodec _videoCodec = VideoCodec.h264;
   bool _useCrf = true;
   int _crf = 23;
-  int _videoBitrate = 4000; // kbps
-  String _resolution = '1920x1080';
+  int _videoBitrate = 4000;
+  int? _resolution; // Height in pixels (e.g., 1080)
+  String? _aspectRatio; // String representation like "16:9"
+
+  // Visual Crop State
+  double? _cropLeft;
+  double? _cropTop;
+  double? _cropWidth;
+  double? _cropHeight;
+
   int? _framerate = 30;
   AudioCodec _audioCodec = AudioCodec.aac;
-  int _audioBitrate = 160; // kbps
+  int _audioBitrate = 160;
   ContainerFormat _container = ContainerFormat.mp4;
   bool _faststart = true;
 
@@ -61,6 +69,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   bool get _isVideoCopy => _videoCodec == VideoCodec.copy;
   bool get _isAudioCopy => _audioCodec == AudioCodec.copy;
 
+  bool get _hasVisualCrop => _cropWidth != null && _cropWidth! < 1.0;
+
   @override
   void dispose() {
     _startController.dispose();
@@ -68,11 +78,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     super.dispose();
   }
 
-  // ---------------------------------------------------------------
-  // Duration ↔ string helpers
-  // ---------------------------------------------------------------
-
-  /// Parses an HH:MM:SS string into a [Duration], or null if empty/invalid.
   Duration? _parseTimeToDuration(String? value) {
     if (value == null || value.isEmpty) return null;
     final regex = RegExp(r'^(\d{1,2}):([0-5]\d):([0-5]\d)$');
@@ -85,7 +90,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Formats a [Duration] as HH:MM:SS.
   String _formatDuration(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60);
@@ -95,16 +99,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         '${s.toString().padLeft(2, '0')}';
   }
 
-  // ---------------------------------------------------------------
-  // Source helpers
-  // ---------------------------------------------------------------
+  int? get _originalRes => _mediaInfo?.height;
 
-  /// Returns the probed resolution string, or empty if unavailable.
-  String get _originalRes {
-    if (_mediaInfo?.width != null && _mediaInfo?.height != null) {
-      return '${_mediaInfo!.width}x${_mediaInfo!.height}';
-    }
-    return '';
+  /// Computes the simplified fraction string of the source aspect ratio
+  String? get _originalAspectRatio {
+    final w = _mediaInfo?.width;
+    final h = _mediaInfo?.height;
+    if (w == null || h == null || w == 0 || h == 0) return null;
+    int gcd(int a, int b) => b == 0 ? a : gcd(b, a % b);
+    final g = gcd(w, h);
+    return '${w ~/ g}:${h ~/ g}';
   }
 
   int? get _originalFps => _mediaInfo?.frameRate?.round();
@@ -112,7 +116,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ? _mediaInfo!.audioBitrateBitsPerSec! ~/ 1000
       : null;
 
-  /// Maps a probed container format string to the nearest enum value.
   ContainerFormat _mapContainer(String? format) {
     if (format == null) return ContainerFormat.mp4;
     if (format.contains('mp4') || format.contains('mov')) {
@@ -125,9 +128,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     return ContainerFormat.mp4;
   }
 
-  /// Applies source media properties to the state for the "Custom" preset.
-  /// Sets the default end-time to the full video duration so the trim
-  /// preview has sensible initial bounds.
   void _applySourceDefaults() {
     if (_mediaInfo == null) return;
 
@@ -140,14 +140,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       orElse: () => AudioCodec.aac,
     );
 
-    _resolution = _originalRes.isNotEmpty ? _originalRes : '1920x1080';
+    _resolution = _originalRes;
+    _aspectRatio = _originalAspectRatio;
     _framerate = _originalFps ?? 30;
     _audioBitrate = _originalAudioBitrate ?? 160;
     _container = _mapContainer(_mediaInfo!.container);
     _useCrf = true;
     _crf = 23;
 
-    // Reset editing state — default end time is full video duration
     _removeAudio = false;
     _burnSubtitleIndex = null;
     _startController.clear();
@@ -156,17 +156,21 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     } else {
       _endController.clear();
     }
+
+    // Reset Visual Crop
+    _cropLeft = null;
+    _cropTop = null;
+    _cropWidth = null;
+    _cropHeight = null;
   }
 
-  /// Applies a selected preset's properties to the editor state.
   void _applyPreset(TranscodePreset preset) {
     _videoCodec = preset.videoCodec;
     _useCrf = preset.crf != null;
     _crf = preset.crf ?? 23;
     _videoBitrate = preset.videoBitrate ?? 4000;
-    _resolution =
-        preset.resolution ??
-        (_originalRes.isNotEmpty ? _originalRes : '1920x1080');
+    _resolution = preset.resolution ?? _originalRes;
+    _aspectRatio = preset.aspectRatio ?? _originalAspectRatio;
     _framerate = preset.framerate ?? _originalFps ?? 30;
     _audioCodec = preset.audioCodec;
     _audioBitrate = preset.audioBitrate > 0
@@ -175,14 +179,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _container = preset.container;
     _faststart = preset.faststart;
 
-    // Apply editing state from preset
     _removeAudio = preset.removeAudio;
     _burnSubtitleIndex = preset.burnSubtitleIndex;
     _startController.text = preset.startTime ?? '';
     _endController.text = preset.endTime ?? '';
+
+    _cropLeft = preset.cropLeft;
+    _cropTop = preset.cropTop;
+    _cropWidth = preset.cropWidth;
+    _cropHeight = preset.cropHeight;
   }
 
-  /// Validates time format to ensure FFmpeg receives proper HH:MM:SS input.
   String? _validateTime(String? value) {
     if (value == null || value.isEmpty) return null;
     final regex = RegExp(r'^(\d{1,2}):([0-5]\d):([0-5]\d)$');
@@ -192,15 +199,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     return null;
   }
 
-  // ---------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     final presets = ref.watch(presetProvider);
 
-    // Prevent back navigation while probing to avoid orphaned async states
     return PopScope(
       canPop: !_probing,
       child: Scaffold(
@@ -275,7 +277,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Preset selector dropdown: "Custom (Match Source)" or a saved preset.
   Widget _buildPresetDropdown(List<TranscodePreset> presets) {
     return DropdownButtonFormField<String>(
       decoration: const InputDecoration(
@@ -306,11 +307,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Builds the editing & subtitles form fields: remove-audio toggle,
-  /// trim time inputs with a "Trim Visually" button, subtitle burn-in
-  /// dropdown, and a live trimmed-duration readout.
   List<Widget> _buildEditingChildren() {
-    // Compute current trim duration for the inline readout
     final startDur = _parseTimeToDuration(_startController.text);
     final endDur = _parseTimeToDuration(_endController.text);
     final trimDuration =
@@ -327,7 +324,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         contentPadding: EdgeInsets.zero,
       ),
       const SizedBox(height: 12),
-      // Manual trim time entry (HH:MM:SS)
       Row(
         children: [
           Expanded(
@@ -357,7 +353,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           ),
         ],
       ),
-      // Live trimmed-duration readout
       if (trimDuration != null) ...[
         const SizedBox(height: 8),
         Align(
@@ -373,7 +368,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
       ],
       const SizedBox(height: 12),
-      // Visual trim button — opens the real-time trim preview
       SizedBox(
         width: double.infinity,
         child: OutlinedButton.icon(
@@ -383,10 +377,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
       ),
       const SizedBox(height: 12),
-      // Subtitle burn-in selector.
-      // Value stores the RELATIVE subtitle stream index (0-based among
-      // subtitle streams) for FFmpeg's `si` parameter. The label still
-      // shows the absolute stream index for familiarity with FFprobe.
       DropdownButtonFormField<int?>(
         decoration: const InputDecoration(
           labelText: 'Hardcode Subtitles (Burn-in)',
@@ -394,9 +384,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
         initialValue: _burnSubtitleIndex,
         items: [
-          const DropdownMenuItem(value: null, child: Text('None')),
+          const DropdownMenuItem<int?>(value: null, child: Text('None')),
           for (final sub in _mediaInfo?.subtitleTracks ?? <SubtitleTrack>[])
-            DropdownMenuItem(
+            DropdownMenuItem<int?>(
               value: sub.subtitleStreamIndex,
               child: Text(sub.label),
             ),
@@ -406,19 +396,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     ];
   }
 
-  /// Builds the video settings form fields, conditional on codec selection.
   List<Widget> _buildVideoChildren() {
-    final standardResolutions = ['1920x1080', '1280x720', '854x480', '640x360'];
-    final resOptions = [...standardResolutions];
-    if (_originalRes.isNotEmpty && !resOptions.contains(_originalRes)) {
-      resOptions.add(_originalRes);
-    }
+    final standardAspectRatios = ['16:9', '4:3', '1:1', '9:16', '21:9'];
+    final standardResolutions = [2160, 1440, 1080, 720, 480, 360];
 
-    final standardFps = [24, 25, 30, 60];
-    final fpsOptions = [...standardFps];
+    final fpsOptions = [24, 25, 30, 60];
     if (_originalFps != null && !fpsOptions.contains(_originalFps)) {
       fpsOptions.add(_originalFps!);
     }
+    fpsOptions.sort();
 
     return [
       DropdownButtonFormField<VideoCodec>(
@@ -444,7 +430,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       const EncoderPrefInfo(),
       if (!_isVideoCopy) ...[
         const SizedBox(height: 12),
-        // Rate control segmented selector
         Align(
           alignment: Alignment.centerLeft,
           child: Text(
@@ -502,20 +487,79 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           ),
         ],
         const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
+        // Visual Crop button
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.crop_rounded),
+            label: Text(_hasVisualCrop ? 'Edit Visual Crop' : 'Crop Visually'),
+            onPressed: _sourcePath != null ? _openCropEditor : null,
+          ),
+        ),
+        if (_hasVisualCrop)
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Custom crop applied (${(_cropWidth! * 100).toStringAsFixed(0)}% x ${(_cropHeight! * 100).toStringAsFixed(0)}%)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String?>(
+          decoration: const InputDecoration(
+            labelText: 'Aspect Ratio',
+            border: OutlineInputBorder(),
+          ),
+          initialValue: _aspectRatio,
+          items: [
+            DropdownMenuItem<String?>(
+              value: _originalAspectRatio,
+              child: Text(
+                _originalAspectRatio != null
+                    ? '$_originalAspectRatio (Original)'
+                    : 'Original',
+              ),
+            ),
+            for (final ar in standardAspectRatios)
+              if (ar != _originalAspectRatio)
+                DropdownMenuItem<String?>(value: ar, child: Text(ar)),
+          ],
+          onChanged: (v) => setState(() {
+            _aspectRatio = v;
+            // Clear visual crop if using aspect ratio dropdown
+            _cropLeft = null;
+            _cropTop = null;
+            _cropWidth = null;
+            _cropHeight = null;
+          }),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<int?>(
           decoration: const InputDecoration(
             labelText: 'Resolution',
             border: OutlineInputBorder(),
           ),
           initialValue: _resolution,
-          items: resOptions.map((r) {
-            final isOrig = r == _originalRes;
-            return DropdownMenuItem(
-              value: r,
-              child: Text(isOrig ? '$r (original)' : r),
-            );
-          }).toList(),
-          onChanged: (v) => setState(() => _resolution = v!),
+          items: [
+            DropdownMenuItem<int?>(
+              value: _originalRes,
+              child: Text(
+                _originalRes != null
+                    ? '${_originalRes}p (Original)'
+                    : 'Original',
+              ),
+            ),
+            for (final r in standardResolutions)
+              if (r != _originalRes)
+                DropdownMenuItem<int?>(value: r, child: Text('${r}p')),
+          ],
+          onChanged: (v) => setState(() => _resolution = v),
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<int>(
@@ -526,7 +570,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           initialValue: _framerate,
           items: fpsOptions.map((f) {
             final isOrig = f == _originalFps;
-            return DropdownMenuItem(
+            return DropdownMenuItem<int>(
               value: f,
               child: Text(isOrig ? '$f fps (original)' : '$f fps'),
             );
@@ -537,7 +581,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     ];
   }
 
-  /// Builds the audio settings form fields, conditional on codec and remove-audio.
   List<Widget> _buildAudioChildren() {
     final standardAudioBitrates = [320, 256, 192, 160, 128, 96];
     final audioBitrateOptions = [...standardAudioBitrates];
@@ -545,7 +588,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         !audioBitrateOptions.contains(_originalAudioBitrate)) {
       audioBitrateOptions.add(_originalAudioBitrate!);
     }
-    // Sort descending so higher bitrates appear at the top
     audioBitrateOptions.sort((a, b) => b.compareTo(a));
 
     return [
@@ -589,7 +631,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     ];
   }
 
-  /// Builds the container format selection and faststart toggle.
   List<Widget> _buildContainerChildren() {
     final originalContainer = _mapContainer(_mediaInfo?.container);
 
@@ -631,12 +672,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   bool get _canSubmit => _sourcePath != null && !_probing;
 
-  // ---------------------------------------------------------------
-  // Actions
-  // ---------------------------------------------------------------
-
-  /// Opens the file picker, requests permissions, and probes the selected file.
-  /// Locks the back button during the async probe to prevent state corruption.
   Future<void> _pickSource() async {
     setState(() {
       _probing = true;
@@ -682,7 +717,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
-  /// Opens the standard Chewie video preview without trimming controls.
   void _openPreview() {
     if (_sourcePath == null) return;
     Navigator.of(context).push(
@@ -690,9 +724,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Opens the real-time trim preview. The video plays (and loops) within
-  /// the selected region; when the user taps "Save" the start/end text
-  /// fields are updated with the new HH:MM:SS values.
   Future<void> _openTrimPreview() async {
     if (_sourcePath == null) return;
 
@@ -708,7 +739,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ),
     );
 
-    // Update text fields only if the user explicitly saved a selection
     if (result != null && mounted) {
       setState(() {
         _startController.text = _formatDuration(result.start);
@@ -717,15 +747,42 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
-  /// Validates the form, checks the trim range, builds the encode task
-  /// from current state, and enqueues it.
+  /// Opens the visual crop editor and maps the result to internal state.
+  Future<void> _openCropEditor() async {
+    if (_sourcePath == null) return;
+
+    final initialCrop = _hasVisualCrop
+        ? CropResult(_cropLeft!, _cropTop!, _cropWidth!, _cropHeight!)
+        : null;
+
+    final result = await Navigator.of(context).push<CropResult>(
+      MaterialPageRoute(
+        builder: (_) => PreviewScreen(
+          path: _sourcePath!,
+          cropMode: true,
+          initialCrop: initialCrop,
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      setState(() {
+        _cropLeft = result.left;
+        _cropTop = result.top;
+        _cropWidth = result.width;
+        _cropHeight = result.height;
+        // Clear aspect ratio string since exact crop is applied
+        _aspectRatio = null;
+      });
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
     final sourcePath = _sourcePath;
     if (sourcePath == null) return;
 
-    // Validate that start < end when both are set
     final startDur = _parseTimeToDuration(_startController.text);
     final endDur = _parseTimeToDuration(_endController.text);
     if (startDur != null && endDur != null && startDur >= endDur) {
@@ -749,6 +806,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       crf: !_isVideoCopy && _useCrf ? _crf : null,
       videoBitrate: !_isVideoCopy && !_useCrf ? _videoBitrate : null,
       resolution: _isVideoCopy ? null : _resolution,
+      aspectRatio: _isVideoCopy || _hasVisualCrop ? null : _aspectRatio,
       framerate: _isVideoCopy ? null : _framerate,
       audioCodec: _audioCodec,
       audioBitrate: _isAudioCopy || _removeAudio ? 0 : _audioBitrate,
@@ -761,13 +819,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       burnSubtitleIndex: _burnSubtitleIndex,
       startTime: _startController.text.isEmpty ? null : _startController.text,
       endTime: _endController.text.isEmpty ? null : _endController.text,
+      cropLeft: _isVideoCopy ? null : _cropLeft,
+      cropTop: _isVideoCopy ? null : _cropTop,
+      cropWidth: _isVideoCopy ? null : _cropWidth,
+      cropHeight: _isVideoCopy ? null : _cropHeight,
     );
 
     final baseName = PathHelpers.sanitizeFileName(
       p.basenameWithoutExtension(sourcePath),
     );
 
-    // Use custom output directory from settings if available, else fallback to source dir
     final outDir = settings.outputDirectory ?? p.dirname(sourcePath);
 
     final outputPath = PathHelpers.uniqueOutputPath(

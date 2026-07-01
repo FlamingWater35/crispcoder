@@ -20,7 +20,8 @@ class TranscodePreset {
   final VideoCodec videoCodec;
   final int? crf;
   final int? videoBitrate;
-  final String? resolution;
+  final int? resolution; // Height in pixels (e.g., 1080, 720)
+  final String? aspectRatio; // e.g., "16:9", "4:3", "1:1"
   final int? framerate;
   final AudioCodec audioCodec;
   final int audioBitrate;
@@ -31,12 +32,17 @@ class TranscodePreset {
   final bool twoPass;
   final bool isBuiltIn;
 
-  // New Editing Fields
+  // Editing Fields
   final bool removeAudio;
-  final int?
-  burnSubtitleIndex; // Relative subtitle stream index (0-based) for FFmpeg's `subtitles` filter `si` parameter
-  final String? startTime; // e.g., "00:01:30"
-  final String? endTime; // e.g., "00:05:00"
+  final int? burnSubtitleIndex;
+  final String? startTime;
+  final String? endTime;
+
+  // Visual Crop Fields (Fractions from 0.0 to 1.0)
+  final double? cropLeft;
+  final double? cropTop;
+  final double? cropWidth;
+  final double? cropHeight;
 
   const TranscodePreset({
     required this.id,
@@ -46,6 +52,7 @@ class TranscodePreset {
     this.crf,
     this.videoBitrate,
     this.resolution,
+    this.aspectRatio,
     this.framerate,
     required this.audioCodec,
     required this.audioBitrate,
@@ -59,6 +66,10 @@ class TranscodePreset {
     this.burnSubtitleIndex,
     this.startTime,
     this.endTime,
+    this.cropLeft,
+    this.cropTop,
+    this.cropWidth,
+    this.cropHeight,
   });
 
   TranscodePreset copyWith({
@@ -68,7 +79,8 @@ class TranscodePreset {
     VideoCodec? videoCodec,
     int? crf,
     int? videoBitrate,
-    String? resolution,
+    int? resolution,
+    String? aspectRatio,
     int? framerate,
     AudioCodec? audioCodec,
     int? audioBitrate,
@@ -82,6 +94,10 @@ class TranscodePreset {
     int? burnSubtitleIndex,
     String? startTime,
     String? endTime,
+    double? cropLeft,
+    double? cropTop,
+    double? cropWidth,
+    double? cropHeight,
   }) {
     return TranscodePreset(
       id: id ?? this.id,
@@ -91,6 +107,7 @@ class TranscodePreset {
       crf: crf ?? this.crf,
       videoBitrate: videoBitrate ?? this.videoBitrate,
       resolution: resolution ?? this.resolution,
+      aspectRatio: aspectRatio ?? this.aspectRatio,
       framerate: framerate ?? this.framerate,
       audioCodec: audioCodec ?? this.audioCodec,
       audioBitrate: audioBitrate ?? this.audioBitrate,
@@ -104,6 +121,10 @@ class TranscodePreset {
       burnSubtitleIndex: burnSubtitleIndex ?? this.burnSubtitleIndex,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
+      cropLeft: cropLeft ?? this.cropLeft,
+      cropTop: cropTop ?? this.cropTop,
+      cropWidth: cropWidth ?? this.cropWidth,
+      cropHeight: cropHeight ?? this.cropHeight,
     );
   }
 
@@ -114,7 +135,7 @@ class TranscodePreset {
   };
 }
 
-/// Manual Hive adapter (avoids build_runner dependency at app start).
+/// Manual Hive adapter. Handles schema migrations gracefully.
 class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
   @override
   final int typeId = 1;
@@ -128,7 +149,8 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       videoCodec: VideoCodec.values[r.readByte()],
       crf: r.readByte() == 1 ? r.readInt() : null,
       videoBitrate: r.readByte() == 1 ? r.readInt() : null,
-      resolution: r.readByte() == 1 ? r.readString() : null,
+      resolution: r.readByte() == 1 ? r.readInt() : null,
+      aspectRatio: r.readByte() == 1 ? r.readString() : null,
       framerate: r.readByte() == 1 ? r.readInt() : null,
       audioCodec: AudioCodec.values[r.readByte()],
       audioBitrate: r.readInt(),
@@ -142,6 +164,11 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       burnSubtitleIndex: r.readByte() == 1 ? r.readInt() : null,
       startTime: r.readByte() == 1 ? r.readString() : null,
       endTime: r.readByte() == 1 ? r.readString() : null,
+      // V3 Migration: Visual crop fractions added
+      cropLeft: r.readByte() == 1 ? r.readDouble() : null,
+      cropTop: r.readByte() == 1 ? r.readDouble() : null,
+      cropWidth: r.readByte() == 1 ? r.readDouble() : null,
+      cropHeight: r.readByte() == 1 ? r.readDouble() : null,
     );
   }
 
@@ -153,7 +180,8 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
     w.writeByte(p.videoCodec.index);
     _writeNullableInt(w, p.crf);
     _writeNullableInt(w, p.videoBitrate);
-    _writeNullableString(w, p.resolution);
+    _writeNullableInt(w, p.resolution);
+    _writeNullableString(w, p.aspectRatio);
     _writeNullableInt(w, p.framerate);
     w.writeByte(p.audioCodec.index);
     w.writeInt(p.audioBitrate);
@@ -167,6 +195,10 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
     _writeNullableInt(w, p.burnSubtitleIndex);
     _writeNullableString(w, p.startTime);
     _writeNullableString(w, p.endTime);
+    _writeNullableDouble(w, p.cropLeft);
+    _writeNullableDouble(w, p.cropTop);
+    _writeNullableDouble(w, p.cropWidth);
+    _writeNullableDouble(w, p.cropHeight);
   }
 
   static void _writeNullableInt(BinaryWriter w, int? v) {
@@ -184,6 +216,15 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
     } else {
       w.writeByte(1);
       w.writeString(v);
+    }
+  }
+
+  static void _writeNullableDouble(BinaryWriter w, double? v) {
+    if (v == null) {
+      w.writeByte(0);
+    } else {
+      w.writeByte(1);
+      w.writeDouble(v);
     }
   }
 }

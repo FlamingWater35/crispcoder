@@ -7,33 +7,28 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
-/// Trim selection returned when the user saves in trim mode.
-class TrimResult {
-  final Duration start;
-  final Duration end;
+import 'preview_models.dart';
+import 'widgets/crop_overlay.dart';
+import 'widgets/trim_bar.dart';
 
-  const TrimResult(this.start, this.end);
-}
-
-/// Video preview screen with optional real-time trimming.
-///
-/// In standard mode, it uses Chewie for a familiar, fully-featured video
-/// player experience, including embedded subtitle extraction and native HDR
-/// playback. In [trimMode], it bypasses Chewie for a custom progress bar with
-/// two draggable handles to set start/end points.
+/// Video preview screen with optional real-time trimming and visual cropping.
 class PreviewScreen extends StatefulWidget {
   const PreviewScreen({
     super.key,
     required this.path,
     this.trimMode = false,
+    this.cropMode = false,
     this.initialStart,
     this.initialEnd,
+    this.initialCrop,
   });
 
   final String path;
   final bool trimMode;
+  final bool cropMode;
   final Duration? initialStart;
   final Duration? initialEnd;
+  final CropResult? initialCrop;
 
   @override
   State<PreviewScreen> createState() => _PreviewScreenState();
@@ -45,21 +40,17 @@ class _PreviewScreenState extends State<PreviewScreen> {
   bool _loading = true;
   String? _error;
 
-  /// Trim bounds expressed as fractions of total duration (0.0–1.0).
+  // Trim state
   double _startFraction = 0.0;
   double _endFraction = 1.0;
   Duration _totalDuration = Duration.zero;
-
-  /// Previous playing state — used to rebuild only on play/pause change.
   bool? _wasPlaying;
-
-  /// Throttle guard preventing rapid seeks from overwhelming the player.
   DateTime? _lastSeekTime;
   static const _seekThrottle = Duration(milliseconds: 60);
 
-  // ---------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------
+  // Crop state
+  Rect _cropRect = const Rect.fromLTWH(0.0, 0.0, 1.0, 1.0);
+  double? _aspectConstraint; // Null = free, 1.0 = square, 16/9 = widescreen
 
   @override
   void initState() {
@@ -67,8 +58,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
     _initPlayer();
   }
 
-  /// Opens the file, initialises the controller, and applies either the
-  /// standard Chewie wrapper or the custom trim listener depending on mode.
+  /// Opens the file, initialises the controller, and applies mode setups.
   Future<void> _initPlayer() async {
     try {
       final file = File(widget.path);
@@ -89,7 +79,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
       controller.addListener(_onVideoUpdate);
 
       if (widget.trimMode) {
-        // Trim Mode Setup
         if (widget.initialStart != null) {
           _startFraction = _toFraction(widget.initialStart!);
         }
@@ -98,12 +87,21 @@ class _PreviewScreenState extends State<PreviewScreen> {
         }
         _enforceMinGap();
 
-        await controller.setLooping(false); // looping handled manually
+        await controller.setLooping(false);
         await controller.seekTo(startDuration);
         await controller.play();
+      } else if (widget.cropMode) {
+        if (widget.initialCrop != null) {
+          _cropRect = Rect.fromLTWH(
+            widget.initialCrop!.left,
+            widget.initialCrop!.top,
+            widget.initialCrop!.width,
+            widget.initialCrop!.height,
+          );
+        }
+        await controller.setLooping(true);
+        await controller.play();
       } else {
-        // Standard Preview Setup (Chewie)
-        // Extract embedded subtitles to a list of Subtitle objects
         final subsList = await _extractSubtitles(widget.path);
 
         _chewieController = ChewieController(
@@ -114,8 +112,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
           showSubtitles: subsList.isNotEmpty,
           subtitle: Subtitles(subsList),
           subtitleBuilder: (context, text) {
-            // In landscape (fullscreen), keep it near the bottom.
-            // In portrait, lift it higher to avoid the control bar.
             final isLandscape =
                 MediaQuery.of(context).size.width >
                 MediaQuery.of(context).size.height;
@@ -179,23 +175,12 @@ class _PreviewScreenState extends State<PreviewScreen> {
     super.dispose();
   }
 
-  // ---------------------------------------------------------------
-  // Subtitle Extraction (Chewie Mode Only)
-  // ---------------------------------------------------------------
-
-  /// Extracts the first embedded subtitle track to a list of [Subtitle] objects.
-  ///
-  /// FFmpeg handles the heavy lifting of demuxing the container and
-  /// converting the subtitle format to SRT. This is required because
-  /// Chewie/video_player cannot natively select and render arbitrary
-  /// embedded text tracks on all platforms.
   Future<List<Subtitle>> _extractSubtitles(String path) async {
     try {
       final tempDir = await getTemporaryDirectory();
       final srtPath =
           '${tempDir.path}/sub_${DateTime.now().millisecondsSinceEpoch}.srt';
 
-      // Extract first subtitle stream (-map 0:s:0) to SRT format
       final session = await FFmpegKit.execute(
         '-i "$path" -map 0:s:0 -c:s srt "$srtPath"',
       );
@@ -205,25 +190,19 @@ class _PreviewScreenState extends State<PreviewScreen> {
         final file = File(srtPath);
         if (await file.exists()) {
           final srtContent = await file.readAsString();
-          await file.delete(); // cleanup temp file
+          await file.delete();
 
           if (srtContent.trim().isEmpty) return [];
           return _parseSrt(srtContent);
         }
       }
-    } catch (_) {
-      // Swallow extraction errors; subtitle support is best-effort
-    }
+    } catch (_) {}
     return [];
   }
 
-  /// Strips ASS/SSA override blocks, HTML tags, and decodes entities.
   String _cleanSubtitleText(String text) {
-    // Remove ASS/SSA override blocks like {\an8}
     var cleaned = text.replaceAll(RegExp(r'\{[^}]*\}'), '');
-    // Remove HTML tags like <i>, <b>, <font>
     cleaned = cleaned.replaceAll(RegExp(r'<[^>]*>'), '');
-    // Decode basic HTML entities
     cleaned = cleaned
         .replaceAll('&amp;', '&')
         .replaceAll('&lt;', '<')
@@ -234,7 +213,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     return cleaned.trim();
   }
 
-  /// Parses a raw SRT string into Chewie's [Subtitle] data model list.
   List<Subtitle> _parseSrt(String srt) {
     final lines = srt.split('\n');
     final subtitles = <Subtitle>[];
@@ -245,7 +223,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
         i++;
         continue;
       }
-      i++; // Skip index number
+      i++;
       if (i >= lines.length) break;
 
       final timeMatch = RegExp(
@@ -259,7 +237,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
 
       final textLines = <String>[];
       while (i < lines.length && lines[i].trim().isNotEmpty) {
-        // Clean each line before adding it
         textLines.add(_cleanSubtitleText(lines[i]));
         i++;
       }
@@ -274,7 +251,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     return subtitles;
   }
 
-  /// Formats an SRT timestamp (HH:MM:SS,mmm) into a [Duration].
   Duration _parseSrtTime(String t) {
     final parts = t.split(':');
     final secsParts = parts[2].split(',');
@@ -286,29 +262,20 @@ class _PreviewScreenState extends State<PreviewScreen> {
     );
   }
 
-  // ---------------------------------------------------------------
-  // Trim helpers
-  // ---------------------------------------------------------------
-
-  /// Converts a [Duration] to a 0–1 fraction of the total duration.
   double _toFraction(Duration d) {
     final ms = _totalDuration.inMilliseconds;
     if (ms <= 0) return 0.0;
     return (d.inMilliseconds / ms).clamp(0.0, 1.0);
   }
 
-  /// Current trim start as an absolute [Duration].
   Duration get startDuration => Duration(
     milliseconds: (_startFraction * _totalDuration.inMilliseconds).round(),
   );
 
-  /// Current trim end as an absolute [Duration].
   Duration get endDuration => Duration(
     milliseconds: (_endFraction * _totalDuration.inMilliseconds).round(),
   );
 
-  /// Ensures at least 1 % of the video separates start and end, fixing
-  /// any inverted or overlapping bounds.
   void _enforceMinGap() {
     const minGap = 0.01;
     if (_startFraction >= _endFraction) {
@@ -319,8 +286,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     }
   }
 
-  /// Seeks to [position] at most once per [_seekThrottle] to avoid
-  /// overwhelming the platform video player during rapid handle drags.
   void _throttledSeek(Duration position) {
     final now = DateTime.now();
     if (_lastSeekTime == null ||
@@ -330,18 +295,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
     }
   }
 
-  // ---------------------------------------------------------------
-  // Video listener (Trim Mode Only)
-  // ---------------------------------------------------------------
-
-  /// Called on every controller update (position change, state change).
-  /// In trim mode, loops playback within the selection. Triggers a widget
-  /// rebuild only when the play/pause state actually changes.
   void _onVideoUpdate() {
     final c = _videoController;
     if (c == null || !c.value.isInitialized || !widget.trimMode) return;
 
-    // Confine playback to the trim region while playing
     if (c.value.isPlaying) {
       final pos = c.value.position;
       if (pos >= endDuration || pos < startDuration) {
@@ -349,7 +306,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
       }
     }
 
-    // Rebuild only when play/pause icon needs to change
     final isPlaying = c.value.isPlaying;
     if (isPlaying != _wasPlaying) {
       _wasPlaying = isPlaying;
@@ -357,12 +313,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     }
   }
 
-  // ---------------------------------------------------------------
-  // Gesture callbacks (Trim Mode Only)
-  // ---------------------------------------------------------------
-
-  /// Updates the start handle position, pauses playback, and seeks to the
-  /// new frame so the user can see what they're trimming to.
   void _onStartChanged(double fraction) {
     _videoController?.pause();
     setState(() {
@@ -371,8 +321,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     _throttledSeek(startDuration);
   }
 
-  /// Updates the end handle position, pauses playback, and seeks to the
-  /// new frame.
   void _onEndChanged(double fraction) {
     _videoController?.pause();
     setState(() {
@@ -381,8 +329,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     _throttledSeek(endDuration);
   }
 
-  /// Seeks to [fraction] of the total duration. In trim mode the position
-  /// is clamped to the active trim region.
   void _onScrub(double fraction) {
     final clamped = fraction.clamp(
       widget.trimMode ? _startFraction : 0.0,
@@ -395,12 +341,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     setState(() {});
   }
 
-  // ---------------------------------------------------------------
-  // Transport (Trim Mode Only)
-  // ---------------------------------------------------------------
-
-  /// Toggles play/pause. When resuming from the end of the region, the
-  /// playhead jumps back to the start so playback continues seamlessly.
   void _togglePlayPause() {
     final c = _videoController;
     if (c == null) return;
@@ -418,7 +358,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     c.play();
   }
 
-  /// Resets both handles to the full video bounds.
   void _resetTrim() {
     _videoController?.pause();
     setState(() {
@@ -428,16 +367,28 @@ class _PreviewScreenState extends State<PreviewScreen> {
     _videoController?.seekTo(Duration.zero);
   }
 
-  /// Returns the current trim selection and closes the screen.
   void _saveTrim() {
     Navigator.of(context).pop(TrimResult(startDuration, endDuration));
   }
 
-  // ---------------------------------------------------------------
-  // Formatting
-  // ---------------------------------------------------------------
+  void _resetCrop() {
+    setState(() {
+      _aspectConstraint = null;
+      _cropRect = const Rect.fromLTWH(0.0, 0.0, 1.0, 1.0);
+    });
+  }
 
-  /// Formats a [Duration] as HH:MM:SS.
+  void _saveCrop() {
+    Navigator.of(context).pop(
+      CropResult(
+        _cropRect.left,
+        _cropRect.top,
+        _cropRect.width,
+        _cropRect.height,
+      ),
+    );
+  }
+
   String _fmt(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60);
@@ -447,18 +398,21 @@ class _PreviewScreenState extends State<PreviewScreen> {
         '${s.toString().padLeft(2, '0')}';
   }
 
-  // ---------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
+    String title = 'Preview';
+    if (widget.trimMode) title = 'Trim Video';
+    if (widget.cropMode) title = 'Crop Video';
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.trimMode ? 'Trim Video' : 'Preview'),
+        title: Text(title),
         actions: [
-          if (widget.trimMode)
-            TextButton(onPressed: _saveTrim, child: const Text('Save')),
+          if (widget.trimMode || widget.cropMode)
+            TextButton(
+              onPressed: widget.trimMode ? _saveTrim : _saveCrop,
+              child: const Text('Save'),
+            ),
         ],
       ),
       body: SafeArea(child: _buildBody()),
@@ -473,22 +427,20 @@ class _PreviewScreenState extends State<PreviewScreen> {
       return _buildError();
     }
 
-    // Standard mode: defer entirely to Chewie's own UI, controls, and subtitle renderer
-    if (!widget.trimMode) {
+    if (!widget.trimMode && !widget.cropMode) {
       if (_chewieController == null) return _buildError();
       return Chewie(controller: _chewieController!);
     }
 
-    // Trim mode: custom layered UI
     return Column(
       children: [
         Expanded(child: _buildVideoArea()),
-        _buildControls(),
+        if (widget.trimMode) _buildControls(),
+        if (widget.cropMode) _buildCropControls(),
       ],
     );
   }
 
-  /// Error fallback with a go-back button.
   Widget _buildError() {
     final theme = Theme.of(context);
     return Center(
@@ -515,8 +467,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
     );
   }
 
-  /// Centered video player preserving aspect ratio with black background.
-  /// Wrapped in [RepaintBoundary] so frame repaints don't cascade upward.
   Widget _buildVideoArea() {
     return Container(
       color: Colors.black,
@@ -524,13 +474,21 @@ class _PreviewScreenState extends State<PreviewScreen> {
       child: RepaintBoundary(
         child: AspectRatio(
           aspectRatio: _videoController!.value.aspectRatio,
-          child: VideoPlayer(_videoController!),
+          child: widget.cropMode
+              ? CropOverlay(
+                  controller: _videoController!,
+                  cropRect: _cropRect,
+                  aspectConstraint: _aspectConstraint,
+                  onCropChanged: (newRect) {
+                    setState(() => _cropRect = newRect);
+                  },
+                )
+              : VideoPlayer(_videoController!),
         ),
       ),
     );
   }
 
-  /// Bottom control panel: time labels, trim/seek bar, transport buttons.
   Widget _buildControls() {
     final theme = Theme.of(context);
     return Container(
@@ -548,7 +506,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Time labels: start (or 00:00:00) and end (or full duration)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -577,9 +534,8 @@ class _PreviewScreenState extends State<PreviewScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          // Interactive trim / seek bar (isolated for repaint perf)
           RepaintBoundary(
-            child: _TrimBar(
+            child: TrimBar(
               controller: _videoController!,
               totalDuration: _totalDuration,
               startFraction: _startFraction,
@@ -591,7 +547,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          // Transport controls
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -604,7 +559,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
               else
                 const SizedBox(width: 48),
               const SizedBox(width: 16),
-              // Play/pause button — icon reflects current state
               IconButton.filled(
                 icon: Icon(
                   _videoController!.value.isPlaying
@@ -629,199 +583,90 @@ class _PreviewScreenState extends State<PreviewScreen> {
       ),
     );
   }
-}
 
-/// Interactive progress bar with optional trim handles.
-///
-/// Uses [AnimatedBuilder] on the video controller so only the bar repaints
-/// on position changes — the rest of the screen is unaffected. In trim mode
-/// two draggable handles appear at the selection boundaries; in preview mode
-/// a simple seek bar is shown.
-class _TrimBar extends StatelessWidget {
-  const _TrimBar({
-    required this.controller,
-    required this.totalDuration,
-    required this.startFraction,
-    required this.endFraction,
-    required this.trimMode,
-    required this.onStartChanged,
-    required this.onEndChanged,
-    required this.onScrub,
-  });
-
-  final VideoPlayerController controller;
-  final Duration totalDuration;
-  final double startFraction;
-  final double endFraction;
-  final bool trimMode;
-
-  /// Called with an absolute 0–1 fraction when the start handle moves.
-  final ValueChanged<double> onStartChanged;
-
-  /// Called with an absolute 0–1 fraction when the end handle moves.
-  final ValueChanged<double> onEndChanged;
-
-  /// Called with an absolute 0–1 fraction when the user taps or drags the
-  /// bar background to scrub the playhead.
-  final ValueChanged<double> onScrub;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        return SizedBox(
-          height: 40,
-          child: AnimatedBuilder(
-            animation: controller,
-            builder: (context, _) {
-              final pos = controller.value.position;
-              final playhead = totalDuration.inMilliseconds > 0
-                  ? (pos.inMilliseconds / totalDuration.inMilliseconds).clamp(
-                      0.0,
-                      1.0,
-                    )
-                  : 0.0;
-              return _buildStack(context, width, playhead);
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  /// Builds the layered stack: background track, selection highlight,
-  /// scrub area, playhead, and (in trim mode) two drag handles.
-  Widget _buildStack(BuildContext context, double width, double playhead) {
+  /// Bottom control panel for the Crop Mode.
+  Widget _buildCropControls() {
     final theme = Theme.of(context);
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        // --- Background track ---
-        Positioned(
-          top: 16,
-          left: 0,
-          right: 0,
-          child: IgnorePointer(
-            child: Container(
-              height: 8,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
           ),
-        ),
-        // --- Selection highlight (trim) or played portion (preview) ---
-        Positioned(
-          top: 16,
-          left: trimMode ? startFraction * width : 0,
-          width: (trimMode ? (endFraction - startFraction) : playhead) * width,
-          child: IgnorePointer(
-            child: Container(
-              height: 8,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-        ),
-        // --- Full-bar tap/drag scrub area ---
-        // Sits above the visual layers but below the handles so handle
-        // gestures take priority.  HitTestBehavior.opaque ensures taps
-        // on transparent areas are still captured.
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapDown: (d) => onScrub(d.localPosition.dx / width),
-            onHorizontalDragUpdate: (d) => onScrub(d.localPosition.dx / width),
-            child: const ColoredBox(color: Colors.transparent),
-          ),
-        ),
-        // --- Playhead indicator ---
-        Positioned(
-          left: playhead * width - 1,
-          top: 8,
-          child: IgnorePointer(
-            child: Container(
-              width: 2,
-              height: 24,
-              color: theme.colorScheme.error,
-            ),
-          ),
-        ),
-        // --- Start handle (trim mode only) ---
-        if (trimMode)
-          _buildHandle(
-            context,
-            left: startFraction * width,
-            semanticLabel: 'Start trim handle',
-            onDrag: (delta) {
-              final f = (startFraction + delta / width).clamp(
-                0.0,
-                endFraction - 0.01,
-              );
-              onStartChanged(f);
-            },
-          ),
-        // --- End handle (trim mode only) ---
-        if (trimMode)
-          _buildHandle(
-            context,
-            left: endFraction * width,
-            semanticLabel: 'End trim handle',
-            onDrag: (delta) {
-              final f = (endFraction + delta / width).clamp(
-                startFraction + 0.01,
-                1.0,
-              );
-              onEndChanged(f);
-            },
-          ),
-      ],
-    );
-  }
-
-  /// Draggable trim handle with grip icon and accessibility label.
-  /// [onDrag] receives the incremental horizontal delta in pixels.
-  Widget _buildHandle(
-    BuildContext context, {
-    required double left,
-    required String semanticLabel,
-    required ValueChanged<double> onDrag,
-  }) {
-    final theme = Theme.of(context);
-    return Positioned(
-      left: left - 12,
-      top: 4,
-      child: Semantics(
-        label: semanticLabel,
-        child: GestureDetector(
-          onHorizontalDragUpdate: (d) => onDrag(d.delta.dx),
-          child: Container(
-            width: 24,
-            height: 32,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary,
-              borderRadius: BorderRadius.circular(6),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.drag_handle_rounded,
-              size: 16,
-              color: Colors.white,
-            ),
-          ),
-        ),
+        ],
       ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Aspect Ratio',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              _buildAspectChip('Free', null),
+              _buildAspectChip('1:1', 1.0),
+              _buildAspectChip('4:3', 4 / 3),
+              _buildAspectChip('3:2', 3 / 2),
+              _buildAspectChip('16:9', 16 / 9),
+              _buildAspectChip('9:16', 9 / 16),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                tooltip: 'Reset crop',
+                icon: const Icon(Icons.refresh),
+                onPressed: _resetCrop,
+              ),
+              const SizedBox(width: 16),
+              IconButton.filled(
+                icon: const Icon(Icons.check_rounded),
+                iconSize: 28,
+                onPressed: _saveCrop,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Pill button for selecting an aspect ratio constraint.
+  Widget _buildAspectChip(String label, double? ratio) {
+    final isSelected = _aspectConstraint == ratio;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (_) {
+        setState(() {
+          _aspectConstraint = ratio;
+          // Re-center crop while maintaining size or aspect ratio
+          if (ratio != null) {
+            double newWidth = _cropRect.width;
+            double newHeight = newWidth / ratio;
+            if (newHeight > 1.0) {
+              newHeight = 1.0;
+              newWidth = newHeight * ratio;
+            }
+            double newLeft = 0.5 - (newWidth / 2);
+            double newTop = 0.5 - (newHeight / 2);
+            _cropRect = Rect.fromLTWH(newLeft, newTop, newWidth, newHeight);
+          }
+        });
+      },
     );
   }
 }

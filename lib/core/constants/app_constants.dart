@@ -20,6 +20,7 @@ class AppConstants {
   static const keyEncoderPref = 'encoder_preference';
   static const keyThemeMode = 'theme_mode';
   static const keyOutputDirectory = 'output_directory';
+  static const keySchemaVersion = 'schema_version';
 
   // Foreground service
   static const fgNotificationChannelId = 'videocode_encode';
@@ -38,7 +39,8 @@ class AppConstants {
       category: 'General',
       videoCodec: VideoCodec.h264,
       crf: 22,
-      resolution: '1920x1080',
+      resolution: 1080,
+      aspectRatio: '16:9',
       framerate: 30,
       audioCodec: AudioCodec.aac,
       audioBitrate: 160,
@@ -53,7 +55,8 @@ class AppConstants {
       category: 'General',
       videoCodec: VideoCodec.hevc,
       crf: 23,
-      resolution: '3840x2160',
+      resolution: 2160,
+      aspectRatio: '16:9',
       framerate: null,
       audioCodec: AudioCodec.aac,
       audioBitrate: 192,
@@ -68,7 +71,8 @@ class AppConstants {
       category: 'Devices',
       videoCodec: VideoCodec.h264,
       crf: 24,
-      resolution: '1280x720',
+      resolution: 720,
+      aspectRatio: '16:9',
       framerate: 30,
       audioCodec: AudioCodec.aac,
       audioBitrate: 128,
@@ -84,6 +88,7 @@ class AppConstants {
       videoCodec: VideoCodec.hevc,
       crf: 28,
       resolution: null,
+      aspectRatio: null,
       framerate: null,
       audioCodec: AudioCodec.opus,
       audioBitrate: 96,
