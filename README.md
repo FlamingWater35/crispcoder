@@ -9,6 +9,12 @@
 
 **CrispCoder** is a modern video transcoder for Android devices, built with Flutter and powered by FFmpeg. It allows queueing multiple video encoding tasks, configuring advanced transcode presets, burning in subtitles, trimming video durations, visually cropping aspect ratios, and managing hardware/software encoding preferences—all while running reliably in the background.
 
+<div align="center">
+  <a href="https://github.com/FlamingWater35/crispcoder/releases/latest">
+    <img src="https://img.shields.io/badge/Download-Latest_Release-2196F3?style=for-the-badge&logo=github&logoColor=white" alt="Download Latest Release">
+  </a>
+</div>
+
 ---
 
 ## ✨ Features
@@ -39,6 +45,17 @@
   - Theme mode selection (System, Light, Dark).
   - Persistent notification control for background processing.
   - Custom output directory configuration.
+
+---
+
+## 📲 Download & Installation
+
+1. Click the **Download Latest Release** button above, or go to the [Releases page](https://github.com/FlamingWater35/crispcoder/releases/latest).
+2. Download the `crispcoder-vX.X.X-arm64-v8a.apk` file corresponding to your device architecture (usually `arm64-v8a` for modern devices).
+3. Open the downloaded file on your Android device. You may need to allow "Install from unknown sources" in your settings.
+4. Once installed, open CrispCoder and grant the necessary storage and notification permissions.
+
+*Note: You can also check for updates directly within the app from the Settings screen.*
 
 ---
 
