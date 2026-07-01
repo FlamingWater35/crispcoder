@@ -23,8 +23,8 @@ class EncodeProgress {
   });
 
   String get formattedPercent => '${percent.toStringAsFixed(1)}%';
-  String get formattedFps => '${fps.toStringAsFixed(1)} fps';
-  String get formattedSpeed => '${speed.toStringAsFixed(2)}x';
+  String get formattedFps => fps > 0 ? '${fps.toStringAsFixed(1)} fps' : '—';
+  String get formattedSpeed => speed > 0 ? '${speed.toStringAsFixed(2)}x' : '—';
   String get formattedEta =>
       etaSeconds == null ? '—' : FormatParsers.formatDuration(etaSeconds!);
   String get formattedBitrate => FormatParsers.formatBitrate(bitrateBitsPerSec);

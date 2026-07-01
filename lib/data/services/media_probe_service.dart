@@ -3,6 +3,7 @@ import 'package:ffmpeg_kit_flutter_new/stream_information.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors/app_exceptions.dart';
+import '../../core/utils/format_parsers.dart';
 import '../../main.dart';
 import '../models/media_info.dart';
 
@@ -51,7 +52,7 @@ class MediaProbeService {
         height: int.tryParse(video?.getHeight()?.toString() ?? ''),
         videoCodec: video?.getCodec(),
         audioCodec: audio?.getCodec(),
-        frameRate: double.tryParse(video?.getAverageFrameRate() ?? ''),
+        frameRate: FormatParsers.parseFramerate(video?.getAverageFrameRate()),
         bitrateBitsPerSec: int.tryParse(info.getBitrate() ?? ''),
         audioBitrateBitsPerSec: int.tryParse(audio?.getBitrate() ?? ''),
         container: info.getFormat(),

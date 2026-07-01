@@ -30,6 +30,23 @@ class FormatParsers {
     return (remainingMedia / speed).round();
   }
 
+  /// Parses a framerate string like "30/1" or "30000/1001" into a double.
+  static double? parseFramerate(String? value) {
+    if (value == null || value.isEmpty) return null;
+    if (value.contains('/')) {
+      final parts = value.split('/');
+      if (parts.length == 2) {
+        final num = double.tryParse(parts[0]);
+        final den = double.tryParse(parts[1]);
+        if (num != null && den != null && den != 0) {
+          return num / den;
+        }
+      }
+      return null;
+    }
+    return double.tryParse(value);
+  }
+
   /// Formats a bitrate (bits/sec) into a human readable kbps/Mbps string.
   static String formatBitrate(double? bitsPerSecond) {
     if (bitsPerSecond == null || bitsPerSecond <= 0) {
