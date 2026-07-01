@@ -278,6 +278,8 @@ class TranscodeService {
   /// Cancels the active session. Resolves when FFmpeg has stopped.
   Future<void> cancel() async {
     final a = _active;
+    // Clear immediately so isRunning is false and new tasks can queue
+    _active = null;
     if (a == null) {
       return;
     }

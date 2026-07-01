@@ -96,7 +96,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _useCrf = preset.crf != null;
     _crf = preset.crf ?? 23;
     _videoBitrate = preset.videoBitrate ?? 4000;
-    // Fixed operator precedence by adding parentheses around the ternary operator
     _resolution =
         preset.resolution ??
         (_originalRes.isNotEmpty ? _originalRes : '1920x1080');
@@ -127,7 +126,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     probing: _probing,
                     onPick: _pickSource,
                   ),
-                  // Only show media info, advanced options, and actions if a source is loaded
                   if (_mediaInfo != null) ...[
                     const SizedBox(height: 12),
                     _MediaInfoCard(info: _mediaInfo!),
@@ -162,14 +160,13 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   /// Builds the dynamic form fields for advanced transcoding settings
   Widget _buildAdvancedOptions(List<TranscodePreset> presets) {
-    // Dynamic dropdown item lists
     final standardResolutions = ['1920x1080', '1280x720', '854x480', '640x360'];
     final resOptions = [...standardResolutions];
     if (_originalRes.isNotEmpty && !resOptions.contains(_originalRes)) {
       resOptions.add(_originalRes);
     }
 
-    final standardFps = [24, 25, 30, 60]; // Added 25fps
+    final standardFps = [24, 25, 30, 60];
     final fpsOptions = [...standardFps];
     if (_originalFps != null && !fpsOptions.contains(_originalFps)) {
       fpsOptions.add(_originalFps!);
@@ -190,7 +187,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Preset Selector
             DropdownButtonFormField<String>(
               decoration: const InputDecoration(labelText: 'Preset'),
               initialValue: _selectedPresetId,
@@ -406,7 +402,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     try {
       await ref.read(permissionServiceProvider).requireMediaRead();
 
-      // Using FilePicker.pickFile as per user instructions
       final result = await FilePicker.pickFile(type: FileType.video);
 
       if (result == null) {
@@ -428,7 +423,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         _sourcePath = path;
         _mediaInfo = info;
         _selectedPresetId = 'custom';
-        _applySourceDefaults(); // Initialize defaults based on source
+        _applySourceDefaults();
         _probing = false;
       });
     } on AppException catch (e) {
@@ -455,7 +450,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final sourcePath = _sourcePath;
     if (sourcePath == null) return;
 
-    // Construct the custom preset directly from user input
     final preset = TranscodePreset(
       id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
       name: 'Custom Encode',
@@ -496,9 +490,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     await ref.read(queueProvider.notifier).enqueue(task);
 
-    // Return to the home screen immediately after starting the encode
     if (mounted) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      // Simply pop back to the previous screen (the queue)
+      Navigator.of(context).pop();
     }
   }
 

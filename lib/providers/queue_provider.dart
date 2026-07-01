@@ -1,4 +1,6 @@
 import 'package:collection/collection.dart';
+import 'package:crispcoder/core/errors/app_exceptions.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -36,15 +38,21 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
     await QueueRepository.instance.upsert(task);
     state = QueueRepository.instance.all;
     if (state.where((t) => t.status == EncodeStatus.running).isEmpty) {
-      await startNext();
+      // Fire and forget startNext so UI is not blocked while encoding
+      startNext();
     }
   }
 
   Future<void> remove(String id) async {
-    if (state.any((t) => t.id == id && t.status == EncodeStatus.running)) {
+    final task = state.firstWhereOrNull((t) => t.id == id);
+    if (task != null && task.status == EncodeStatus.running) {
+      // If it's running, remove from repo first, then cancel.
+      // The startNext loop will see it's gone and not mark it as cancelled.
+      await QueueRepository.instance.remove(id);
       await ref.read(transcodeServiceProvider).cancel();
+    } else {
+      await QueueRepository.instance.remove(id);
     }
-    await QueueRepository.instance.remove(id);
     state = QueueRepository.instance.all;
   }
 
@@ -55,46 +63,45 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
 
   /// Starts the next pending task. Idempotent: no-op if a task is running.
   Future<void> startNext() async {
-    if (ref.read(activeEncodeProvider) != null) {
-      return;
-    }
-
-    final next = state.firstWhereOrNull(
-      (t) => t.status == EncodeStatus.pending,
-    );
-    if (next == null) {
-      await WakelockPlus.disable();
-      await ForegroundServiceWrapper.instance.stop();
-      return;
-    }
-
-    final preset = next.preset; // Use embedded preset directly
-    final cap = await ref.read(deviceCapabilityProvider.future);
-    final svc = ref.read(transcodeServiceProvider);
-
-    final running = next.copyWith(
-      status: EncodeStatus.running,
-      startedAt: DateTime.now(),
-    );
-    await QueueRepository.instance.upsert(running);
-    state = QueueRepository.instance.all;
-
-    await WakelockPlus.enable();
-    await ForegroundServiceWrapper.instance.start(
-      title: 'Transcoding: ${next.sourceName ?? 'video'}',
-      text: 'Starting…',
-    );
-
+    EncodeTask? runningTask;
     try {
-      final session = await svc.start(
-        task: running,
-        preset: preset,
-        capability: cap,
+      if (ref.read(activeEncodeProvider) != null) {
+        return;
+      }
+
+      final next = state.firstWhereOrNull(
+        (t) => t.status == EncodeStatus.pending,
       );
+      if (next == null) {
+        await WakelockPlus.disable();
+        await ForegroundServiceWrapper.instance.stop();
+        return;
+      }
+
+      runningTask = next.copyWith(
+        status: EncodeStatus.running,
+        startedAt: DateTime.now(),
+      );
+      await QueueRepository.instance.upsert(runningTask);
+      state = QueueRepository.instance.all;
+
+      await WakelockPlus.enable();
+      await ForegroundServiceWrapper.instance.start(
+        title: 'Transcoding: ${next.sourceName ?? 'video'}',
+        text: 'Starting…',
+      );
+
+      final session = await ref
+          .read(transcodeServiceProvider)
+          .start(
+            task: runningTask,
+            preset: next.preset,
+            capability: await ref.read(deviceCapabilityProvider.future),
+          );
       ref.read(activeEncodeProvider.notifier).attach(session);
       await session.completion;
 
-      final finished = running.copyWith(
+      final finished = runningTask.copyWith(
         status: EncodeStatus.completed,
         finishedAt: DateTime.now(),
       );
@@ -102,18 +109,41 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
       await HistoryRepository.instance.add(finished);
 
       await ref.read(galleryServiceProvider).saveToGallery(finished.outputPath);
-    } catch (e) {
-      final failed = running.copyWith(
-        status: EncodeStatus.failed,
-        finishedAt: DateTime.now(),
-        errorMessage: e.toString(),
-      );
-      await QueueRepository.instance.upsert(failed);
-      await HistoryRepository.instance.add(failed);
+    } on EncodeCancelledException {
+      // If the task was cancelled, check if it still exists in the queue.
+      // If it does, mark it as cancelled. If not, the user removed it.
+      if (runningTask != null) {
+        final existing = QueueRepository.instance.byId(runningTask.id);
+        if (existing != null) {
+          final cancelled = runningTask.copyWith(
+            status: EncodeStatus.cancelled,
+            finishedAt: DateTime.now(),
+          );
+          await QueueRepository.instance.upsert(cancelled);
+          await HistoryRepository.instance.add(cancelled);
+        }
+      }
+    } catch (e, st) {
+      debugPrint('Error during startNext: $e\n$st');
+      if (runningTask != null) {
+        final failed = runningTask.copyWith(
+          status: EncodeStatus.failed,
+          finishedAt: DateTime.now(),
+          errorMessage: e.toString(),
+        );
+        await QueueRepository.instance.upsert(failed);
+        await HistoryRepository.instance.add(failed);
+      }
     } finally {
       ref.read(activeEncodeProvider.notifier).detach();
       state = QueueRepository.instance.all;
-      await startNext();
+      // Continue processing the queue if there are pending tasks
+      if (state.any((t) => t.status == EncodeStatus.pending)) {
+        await startNext();
+      } else {
+        await WakelockPlus.disable();
+        await ForegroundServiceWrapper.instance.stop();
+      }
     }
   }
 
