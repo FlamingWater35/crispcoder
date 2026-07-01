@@ -9,8 +9,8 @@ import '../../data/models/encode_task.dart';
 import '../../data/models/media_info.dart';
 import '../../data/services/media_probe_service.dart';
 import '../../data/services/permission_service.dart';
-import '../../providers/queue_provider.dart';
 import '../../providers/preset_provider.dart';
+import '../../providers/queue_provider.dart';
 import '../preview/preview_screen.dart';
 
 /// Source + preset selection screen. Validates inputs before enqueue.
@@ -52,14 +52,19 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     _MediaInfoCard(info: _mediaInfo!),
                   ],
                   const SizedBox(height: 24),
-                  Text('Preset', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Preset',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     initialValue: _selectedPresetId,
                     decoration: const InputDecoration(
                       border: OutlineInputBorder(),
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
                     ),
                     items: [
                       for (final preset in presets)
@@ -81,9 +86,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                             onPressed: _openPreview,
                           ),
                         ),
-                      if (_mediaInfo != null) {
-                        const SizedBox(width: 12);
-                      }
+                      // Removed invalid curly braces that turned this into a Set
+                      if (_mediaInfo != null) const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton.icon(
                           icon: const Icon(Icons.queue),
@@ -109,9 +113,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     });
     try {
       await ref.read(permissionServiceProvider).requireMediaRead();
-      final result = await FilePicker.pickFile(
-        type: FileType.video,
-      );
+      final result = await FilePicker.pickFile(type: FileType.video);
       if (result == null || result.path == null) {
         setState(() => _probing = false);
         return;
@@ -141,9 +143,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       return;
     }
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PreviewScreen(path: _sourcePath!),
-      ),
+      MaterialPageRoute(builder: (_) => PreviewScreen(path: _sourcePath!)),
     );
   }
 
@@ -161,7 +161,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
 
     final baseName = PathHelpers.sanitizeFileName(
-        p.basenameWithoutExtension(sourcePath));
+      p.basenameWithoutExtension(sourcePath),
+    );
     final outDir = p.dirname(sourcePath);
     final outputPath = PathHelpers.uniqueOutputPath(
       directory: outDir,
@@ -216,17 +217,19 @@ class _SourcePicker extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(probing
-                ? Icons.hourglass_top
-                : (path == null ? Icons.folder_open : Icons.video_file)),
+            Icon(
+              probing
+                  ? Icons.hourglass_top
+                  : (path == null ? Icons.folder_open : Icons.video_file),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 probing
                     ? 'Reading source…'
                     : (path == null
-                        ? 'Tap to select a source video'
-                        : path!.split('/').last),
+                          ? 'Tap to select a source video'
+                          : path!.split('/').last),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -288,8 +291,11 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline,
-                size: 64, color: Theme.of(context).colorScheme.error),
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),

@@ -25,7 +25,10 @@ class GalleryService {
   Future<void> share(String path, {String? subject}) async {
     try {
       await SharePlus.instance.share(
-        ShareParams(XFile(path), subject: subject ?? 'VideoCode output'),
+        ShareParams(
+          files: [XFile(path)],
+          subject: subject ?? 'VideoCode output',
+        ),
       );
     } catch (_) {
       // Swallow — share sheet may be dismissed or unavailable

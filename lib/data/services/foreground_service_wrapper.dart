@@ -16,7 +16,8 @@ class ForegroundServiceWrapper {
     if (_initialized) {
       return;
     }
-    await FlutterForegroundTask.init(
+    // FlutterForegroundTask.init is synchronous and returns void
+    FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: AppConstants.fgNotificationChannelId,
         channelName: AppConstants.fgNotificationChannelName,
