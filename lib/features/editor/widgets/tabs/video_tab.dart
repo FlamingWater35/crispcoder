@@ -336,8 +336,8 @@ class VideoTab extends ConsumerWidget {
                   children: [
                     ChoiceChip(
                       label: Text(
-                        mediaInfo.width != null && mediaInfo.height != null
-                            ? 'Original (${mediaInfo.dimensionsLabel})'
+                        _originalRes != null
+                            ? '${_originalRes}p (Orig)'
                             : 'Original',
                       ),
                       selected: resolution == _originalRes,
