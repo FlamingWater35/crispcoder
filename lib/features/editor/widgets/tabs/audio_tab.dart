@@ -31,7 +31,12 @@ class AudioTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Expanded audio bitrates
+    final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+    );
+
     final standardAudioBitrates = [512, 320, 256, 192, 160, 128, 96, 64];
     final audioBitrateOptions = [...standardAudioBitrates];
     if (_originalAudioBitrate != null &&
@@ -40,7 +45,6 @@ class AudioTab extends StatelessWidget {
     }
     audioBitrateOptions.sort((a, b) => b.compareTo(a));
 
-    // Hide bitrate selector if the codec is lossless (FLAC) or copy
     final showBitrate =
         !isAudioCopy && !removeAudio && audioCodec != AudioCodec.flac;
 
@@ -50,41 +54,41 @@ class AudioTab extends StatelessWidget {
         title: 'Audio Configuration',
         icon: Icons.graphic_eq_outlined,
         children: [
-          DropdownButtonFormField<AudioCodec>(
-            decoration: const InputDecoration(
-              labelText: 'Audio Codec',
-              border: OutlineInputBorder(),
-            ),
-            initialValue: audioCodec,
-            items: AudioCodec.values.map((c) {
+          Text('Audio Codec', style: labelStyle),
+          const SizedBox(height: 8),
+          // Codec Chips
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 8.0,
+            children: AudioCodec.values.map((c) {
               final isOrig = c.name == mediaInfo.audioCodec;
-              return DropdownMenuItem(
-                value: c,
-                child: Text(
+              return ChoiceChip(
+                label: Text(
                   isOrig
-                      ? '${c.name.toUpperCase()} (original)'
+                      ? '${c.name.toUpperCase()} (Orig)'
                       : c.name.toUpperCase(),
                 ),
+                selected: audioCodec == c,
+                onSelected: (_) => onAudioCodecChanged(c),
               );
             }).toList(),
-            onChanged: onAudioCodecChanged,
           ),
           if (showBitrate) ...[
-            const SizedBox(height: 12),
-            DropdownButtonFormField<int>(
-              decoration: const InputDecoration(
-                labelText: 'Audio Bitrate',
-                border: OutlineInputBorder(),
-              ),
-              initialValue: audioBitrate,
-              items: audioBitrateOptions.map((b) {
+            const SizedBox(height: 16),
+            Text('Audio Bitrate', style: labelStyle),
+            const SizedBox(height: 8),
+            // Bitrate Chips
+            Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
+              children: audioBitrateOptions.map((b) {
                 final isOrig = b == _originalAudioBitrate;
-                return DropdownMenuItem(
-                  value: b,
-                  child: Text(isOrig ? '$b kbps (original)' : '$b kbps'),
+                return ChoiceChip(
+                  label: Text(isOrig ? '$b kbps (Orig)' : '$b kbps'),
+                  selected: audioBitrate == b,
+                  onSelected: (_) => onAudioBitrateChanged(b),
                 );
               }).toList(),
-              onChanged: onAudioBitrateChanged,
             ),
           ],
         ],

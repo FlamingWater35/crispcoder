@@ -35,6 +35,12 @@ class OutputTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+    );
+
     final originalContainer = _mapContainer(mediaInfo.container);
 
     return SingleChildScrollView(
@@ -43,26 +49,27 @@ class OutputTab extends StatelessWidget {
         title: 'Container Configuration',
         icon: Icons.folder_outlined,
         children: [
-          DropdownButtonFormField<ContainerFormat>(
-            decoration: const InputDecoration(
-              labelText: 'Format',
-              border: OutlineInputBorder(),
-            ),
-            initialValue: container,
-            items: ContainerFormat.values.map((c) {
+          Text('Format', style: labelStyle),
+          const SizedBox(height: 8),
+          // Container Format Chips
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 8.0,
+            children: ContainerFormat.values.map((c) {
               final isOrig = c == originalContainer;
-              return DropdownMenuItem(
-                value: c,
-                child: Text(
+              return ChoiceChip(
+                label: Text(
                   isOrig
-                      ? '${c.name.toUpperCase()} (original)'
+                      ? '${c.name.toUpperCase()} (Orig)'
                       : c.name.toUpperCase(),
                 ),
+                selected: container == c,
+                onSelected: (_) => onContainerChanged(c),
               );
             }).toList(),
-            onChanged: onContainerChanged,
           ),
-          if (container == ContainerFormat.mp4)
+          if (container == ContainerFormat.mp4) ...[
+            const SizedBox(height: 16),
             SwitchListTile(
               title: const Text('Faststart (Web Optimized)'),
               subtitle: const Text(
@@ -72,6 +79,7 @@ class OutputTab extends StatelessWidget {
               onChanged: onFaststartChanged,
               contentPadding: EdgeInsets.zero,
             ),
+          ],
         ],
       ),
     );

@@ -68,7 +68,6 @@ class VideoTab extends ConsumerWidget {
     return '${w ~/ g}:${h ~/ g}';
   }
 
-  /// Computes the aspect ratio string (e.g., "16:9") from visual crop fractions.
   String? get _computedVisualAR {
     if (!hasVisualCrop || mediaInfo.width == null || mediaInfo.height == null) {
       return null;
@@ -81,12 +80,16 @@ class VideoTab extends ConsumerWidget {
     return '${w ~/ g}:${h ~/ g}';
   }
 
-  /// Determines which string to show as selected in the dropdown.
   String? get _currentAR => hasVisualCrop ? _computedVisualAR : aspectRatio;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Expanded aspect ratios
+    final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+    );
+
     final standardAspectRatios = [
       '16:9',
       '4:3',
@@ -98,10 +101,7 @@ class VideoTab extends ConsumerWidget {
       '1.85:1',
       '5:4',
     ];
-
-    // Expanded resolutions
     final standardResolutions = [2160, 1440, 1080, 720, 480, 360, 240];
-
     final swPresets = [
       'ultrafast',
       'superfast',
@@ -111,13 +111,7 @@ class VideoTab extends ConsumerWidget {
       'medium',
       'slow',
     ];
-
-    // Expanded framerates
     final fpsOptions = [15, 24, 25, 30, 45, 60, 90, 120];
-    if (_originalFps != null && !fpsOptions.contains(_originalFps)) {
-      fpsOptions.add(_originalFps!);
-    }
-    fpsOptions.sort();
 
     final currentAR = _currentAR;
 
@@ -130,39 +124,34 @@ class VideoTab extends ConsumerWidget {
             title: 'Video Configuration',
             icon: Icons.videocam_outlined,
             children: [
-              DropdownButtonFormField<VideoCodec>(
-                decoration: const InputDecoration(
-                  labelText: 'Video Codec',
-                  border: OutlineInputBorder(),
-                ),
-                initialValue: videoCodec,
-                items: VideoCodec.values.map((c) {
+              Text('Video Codec', style: labelStyle),
+              const SizedBox(height: 8),
+              // Codec Chips
+              Wrap(
+                spacing: 8.0,
+                runSpacing: 8.0,
+                children: VideoCodec.values.map((c) {
                   final isOrig = c.name == mediaInfo.videoCodec;
-                  return DropdownMenuItem(
-                    value: c,
-                    child: Text(
+                  return ChoiceChip(
+                    label: Text(
                       isOrig
-                          ? '${c.name.toUpperCase()} (original)'
+                          ? '${c.name.toUpperCase()} (Orig)'
                           : c.name.toUpperCase(),
                     ),
+                    selected: videoCodec == c,
+                    onSelected: (_) => onVideoCodecChanged(c),
                   );
                 }).toList(),
-                onChanged: onVideoCodecChanged,
               ),
               const SizedBox(height: 8),
               const EncoderPrefInfo(),
               if (!_isVideoCopy) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Rate Control',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
+                  child: Text('Rate Control', style: labelStyle),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 SegmentedButton<bool>(
                   segments: const [
                     ButtonSegment(value: true, label: Text('CRF')),
@@ -172,19 +161,16 @@ class VideoTab extends ConsumerWidget {
                   onSelectionChanged: onUseCrfChanged,
                 ),
                 if (useCrf) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   Row(
                     children: [
                       SizedBox(
                         width: 56,
                         child: Text(
                           'CRF $crf',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
-                              ),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
                         ),
                       ),
                       Expanded(
@@ -199,22 +185,23 @@ class VideoTab extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    decoration: const InputDecoration(
-                      labelText: 'Encoder Preset (Speed)',
-                      border: OutlineInputBorder(),
-                      helperText:
-                          'Faster presets use more CPU but process quickly.',
-                    ),
-                    initialValue: videoPreset ?? 'fast',
-                    items: swPresets.map((p) {
-                      return DropdownMenuItem(value: p, child: Text(p));
+                  const SizedBox(height: 8),
+                  Text('Encoder Preset (Speed)', style: labelStyle),
+                  const SizedBox(height: 8),
+                  // Preset Chips
+                  Wrap(
+                    spacing: 8.0,
+                    runSpacing: 8.0,
+                    children: swPresets.map((p) {
+                      return ChoiceChip(
+                        label: Text(p),
+                        selected: (videoPreset ?? 'fast') == p,
+                        onSelected: (_) => onVideoPresetChanged(p),
+                      );
                     }).toList(),
-                    onChanged: onVideoPresetChanged,
                   ),
                 ] else ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   TextFormField(
                     decoration: const InputDecoration(
                       labelText: 'Video Bitrate (kbps)',
@@ -251,79 +238,99 @@ class VideoTab extends ConsumerWidget {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'Custom crop applied (${(cropWidth! * 100).toStringAsFixed(0)}% x ${(cropHeight! * 100).toStringAsFixed(0)}%)',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                   ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String?>(
-                  decoration: const InputDecoration(
-                    labelText: 'Aspect Ratio',
-                    border: OutlineInputBorder(),
-                  ),
-                  initialValue: currentAR,
-                  items: [
-                    DropdownMenuItem<String?>(
-                      value: _originalAspectRatio,
-                      child: Text(
+                const SizedBox(height: 16),
+                Text('Aspect Ratio', style: labelStyle),
+                const SizedBox(height: 8),
+                // Aspect Ratio Chips
+                Wrap(
+                  spacing: 8.0,
+                  runSpacing: 8.0,
+                  children: [
+                    ChoiceChip(
+                      label: Text(
                         _originalAspectRatio != null
-                            ? '$_originalAspectRatio (Original)'
+                            ? '$_originalAspectRatio (Orig)'
                             : 'Original',
                       ),
+                      selected: currentAR == _originalAspectRatio,
+                      onSelected: (_) =>
+                          onAspectRatioChanged(_originalAspectRatio),
                     ),
                     for (final ar in standardAspectRatios)
-                      if (ar != _originalAspectRatio && ar != currentAR)
-                        DropdownMenuItem<String?>(value: ar, child: Text(ar)),
+                      if (ar != _originalAspectRatio)
+                        ChoiceChip(
+                          label: Text(ar),
+                          selected: currentAR == ar,
+                          onSelected: (_) => onAspectRatioChanged(ar),
+                        ),
                     if (currentAR != null &&
                         currentAR != _originalAspectRatio &&
                         !standardAspectRatios.contains(currentAR))
-                      DropdownMenuItem<String?>(
-                        value: currentAR,
-                        child: Text('$currentAR (Custom)'),
+                      ChoiceChip(
+                        label: Text('$currentAR (Custom)'),
+                        selected: true,
+                        onSelected: (_) {},
                       ),
                   ],
-                  onChanged: onAspectRatioChanged,
                 ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int?>(
-                  decoration: const InputDecoration(
-                    labelText: 'Resolution',
-                    border: OutlineInputBorder(),
-                  ),
-                  initialValue: resolution,
-                  items: [
-                    DropdownMenuItem<int?>(
-                      value: _originalRes,
-                      child: Text(
+                const SizedBox(height: 16),
+                Text('Resolution', style: labelStyle),
+                const SizedBox(height: 8),
+                // Resolution Chips
+                Wrap(
+                  spacing: 8.0,
+                  runSpacing: 8.0,
+                  children: [
+                    ChoiceChip(
+                      label: Text(
                         _originalRes != null
-                            ? '${_originalRes}p (Original)'
+                            ? '${_originalRes}p (Orig)'
                             : 'Original',
                       ),
+                      selected: resolution == _originalRes,
+                      onSelected: (_) => onResolutionChanged(_originalRes),
                     ),
                     for (final r in standardResolutions)
                       if (r != _originalRes)
-                        DropdownMenuItem<int?>(value: r, child: Text('${r}p')),
+                        ChoiceChip(
+                          label: Text('${r}p'),
+                          selected: resolution == r,
+                          onSelected: (_) => onResolutionChanged(r),
+                        ),
                   ],
-                  onChanged: onResolutionChanged,
                 ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(
-                    labelText: 'Framerate',
-                    border: OutlineInputBorder(),
-                  ),
-                  initialValue: framerate,
-                  items: fpsOptions.map((f) {
-                    final isOrig = f == _originalFps;
-                    return DropdownMenuItem<int>(
-                      value: f,
-                      child: Text(isOrig ? '$f fps (original)' : '$f fps'),
-                    );
-                  }).toList(),
-                  onChanged: onFramerateChanged,
+                const SizedBox(height: 16),
+                Text('Framerate', style: labelStyle),
+                const SizedBox(height: 8),
+                // Framerate Chips
+                Wrap(
+                  spacing: 8.0,
+                  runSpacing: 8.0,
+                  children: [
+                    ChoiceChip(
+                      label: Text(
+                        _originalFps != null
+                            ? '$_originalFps fps (Orig)'
+                            : 'Original',
+                      ),
+                      selected: framerate == _originalFps,
+                      onSelected: (_) => onFramerateChanged(_originalFps),
+                    ),
+                    for (final f in fpsOptions)
+                      if (f != _originalFps)
+                        ChoiceChip(
+                          label: Text('$f fps'),
+                          selected: framerate == f,
+                          onSelected: (_) => onFramerateChanged(f),
+                        ),
+                  ],
                 ),
               ],
             ),
