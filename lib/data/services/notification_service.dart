@@ -28,7 +28,8 @@ class NotificationService {
         iOS: iosSettings,
       );
 
-      await _plugin.initialize(settings);
+      // v22.x Migration: Use named parameter `settings`
+      await _plugin.initialize(settings: settings);
 
       // Create channels for Android 8.0+
       await _plugin
@@ -89,11 +90,12 @@ class NotificationService {
         iOS: iosDetails,
       );
 
+      // v22.x Migration: Use named parameters for `show`
       await _plugin.show(
-        _progressNotificationId,
-        'Transcoding Video',
-        content,
-        details,
+        id: _progressNotificationId,
+        title: 'Transcoding Video',
+        body: content,
+        notificationDetails: details,
       );
     } catch (_) {}
   }
@@ -102,7 +104,8 @@ class NotificationService {
   Future<void> cancelProgress() async {
     if (!_initialized) return;
     try {
-      await _plugin.cancel(_progressNotificationId);
+      // v22.x Migration: Use named parameter `id` for `cancel`
+      await _plugin.cancel(id: _progressNotificationId);
     } catch (_) {}
   }
 
@@ -121,10 +124,10 @@ class NotificationService {
       final details = NotificationDetails(android: androidDetails);
 
       await _plugin.show(
-        title.hashCode,
-        'Encode Completed',
-        '$title has finished transcoding successfully.',
-        details,
+        id: title.hashCode,
+        title: 'Encode Completed',
+        body: '$title has finished transcoding successfully.',
+        notificationDetails: details,
       );
     } catch (_) {}
   }
@@ -144,10 +147,10 @@ class NotificationService {
       final details = NotificationDetails(android: androidDetails);
 
       await _plugin.show(
-        title.hashCode,
-        'Encode Failed',
-        '$title failed: $error',
-        details,
+        id: title.hashCode,
+        title: 'Encode Failed',
+        body: '$title failed: $error',
+        notificationDetails: details,
       );
     } catch (_) {}
   }

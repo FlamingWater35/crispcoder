@@ -68,6 +68,22 @@ class VideoTab extends ConsumerWidget {
     return '${w ~/ g}:${h ~/ g}';
   }
 
+  /// Computes the aspect ratio string (e.g., "16:9") from visual crop fractions.
+  String? get _computedVisualAR {
+    if (!hasVisualCrop || mediaInfo.width == null || mediaInfo.height == null) {
+      return null;
+    }
+    final w = (cropWidth! * mediaInfo.width!).round();
+    final h = (cropHeight! * mediaInfo.height!).round();
+    if (w <= 0 || h <= 0) return null;
+    int gcd(int a, int b) => b == 0 ? a : gcd(b, a % b);
+    final g = gcd(w, h);
+    return '${w ~/ g}:${h ~/ g}';
+  }
+
+  /// Determines which string to show as selected in the dropdown.
+  String? get _currentAR => hasVisualCrop ? _computedVisualAR : aspectRatio;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final standardAspectRatios = ['16:9', '4:3', '1:1', '9:16', '21:9'];
@@ -87,6 +103,8 @@ class VideoTab extends ConsumerWidget {
       fpsOptions.add(_originalFps!);
     }
     fpsOptions.sort();
+
+    final currentAR = _currentAR;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -167,7 +185,6 @@ class VideoTab extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Encoder Preset Dropdown (Speed vs Compression efficiency)
                   DropdownButtonFormField<String>(
                     decoration: const InputDecoration(
                       labelText: 'Encoder Preset (Speed)',
@@ -232,7 +249,7 @@ class VideoTab extends ConsumerWidget {
                     labelText: 'Aspect Ratio',
                     border: OutlineInputBorder(),
                   ),
-                  initialValue: aspectRatio,
+                  initialValue: currentAR,
                   items: [
                     DropdownMenuItem<String?>(
                       value: _originalAspectRatio,
@@ -243,8 +260,16 @@ class VideoTab extends ConsumerWidget {
                       ),
                     ),
                     for (final ar in standardAspectRatios)
-                      if (ar != _originalAspectRatio)
+                      if (ar != _originalAspectRatio && ar != currentAR)
                         DropdownMenuItem<String?>(value: ar, child: Text(ar)),
+                    // Display the custom visual aspect ratio if it doesn't match standard ones
+                    if (currentAR != null &&
+                        currentAR != _originalAspectRatio &&
+                        !standardAspectRatios.contains(currentAR))
+                      DropdownMenuItem<String?>(
+                        value: currentAR,
+                        child: Text('$currentAR (Custom)'),
+                      ),
                   ],
                   onChanged: onAspectRatioChanged,
                 ),
