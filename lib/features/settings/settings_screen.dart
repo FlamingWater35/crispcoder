@@ -1,6 +1,7 @@
 import 'package:awesome_snackbar_content/awesome_snackbar_content.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -354,7 +355,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 leading: const Icon(Icons.info_outline),
                 title: const Text('CrispCoder'),
                 subtitle: const Text(
-                  'Handbrake-equivalent transcoder • FFmpeg powered',
+                  'Handbrake-inspired transcoder • Powered by FFmpeg',
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -367,7 +368,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  /// Builds the update card with dynamic UI based on the update lifecycle state.
+  /// Builds the update card with a stylized version header and dynamic UI.
   Widget _buildUpdateCard(BuildContext context, AppUpdateState state) {
     final theme = Theme.of(context);
     return Card(
@@ -384,11 +385,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Current Version: $_currentVersion',
-              style: theme.textTheme.bodyMedium,
+            // Improved Version Display
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Current Version',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                // Stylized Badge for Version Number
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'v$_currentVersion',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSecondaryContainer,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
+            const Divider(height: 24),
             switch (state.status) {
               UpdateStatus.idle || UpdateStatus.noUpdate => _buildCheckButton(),
               UpdateStatus.checking => const Center(
@@ -398,7 +425,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: CircularProgressIndicator(strokeWidth: 3),
                 ),
               ),
-              UpdateStatus.updateAvailable => _buildAvailableUI(state),
+              UpdateStatus.updateAvailable => _buildAvailableUI(context, state),
               UpdateStatus.downloading => _buildDownloadingUI(state),
               UpdateStatus.readyToInstall => _buildReadyUI(state),
               UpdateStatus.error => _buildErrorUI(state),
@@ -421,29 +448,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  /// Update available confirmation with release notes.
-  Widget _buildAvailableUI(AppUpdateState state) {
+  /// Update available confirmation with Markdown release notes.
+  Widget _buildAvailableUI(BuildContext context, AppUpdateState state) {
     final info = state.updateInfo!;
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Version ${info.version} is available!',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: Theme.of(context).colorScheme.primary,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: theme.colorScheme.primary,
             fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(12),
+          width: double.infinity,
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            color: theme.colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Text(
-            info.releaseNotes,
-            style: Theme.of(context).textTheme.bodySmall,
+          // Render GitHub release notes as Markdown
+          child: MarkdownBody(
+            data: info.releaseNotes,
+            styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+              p: theme.textTheme.bodySmall,
+              h2: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+              code: theme.textTheme.bodySmall?.copyWith(
+                fontFamily: 'monospace',
+                backgroundColor: theme.colorScheme.surface,
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 16),
