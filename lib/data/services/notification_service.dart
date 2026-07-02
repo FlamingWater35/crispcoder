@@ -9,11 +9,17 @@ class NotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
+  /// Callback triggered when the "Cancel" action button is pressed.
+  static void Function()? onCancelRequested;
+
   static const _progressChannelId = 'crispcoder_encode_progress';
   static const _progressChannelName = 'Encode Progress';
   static const _operationsChannelId = 'crispcoder_operations';
   static const _operationsChannelName = 'Operations';
   static const _progressNotificationId = 777;
+
+  // Key used to group completion and failure notifications together
+  static const _encodeGroupKey = 'com.flamingwater.crispcoder.ENCODES';
 
   /// Initializes the notification plugin and creates required channels.
   Future<void> init() async {
@@ -28,8 +34,16 @@ class NotificationService {
         iOS: iosSettings,
       );
 
-      // v22.x Migration: Use named parameter `settings`
-      await _plugin.initialize(settings: settings);
+      // Initialize with a callback to handle notification action button presses
+      await _plugin.initialize(
+        settings: settings,
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          // Check if the pressed action matches our cancel ID
+          if (response.actionId == 'cancel_encode') {
+            onCancelRequested?.call();
+          }
+        },
+      );
 
       // Create channels for Android 8.0+
       await _plugin
@@ -64,7 +78,7 @@ class NotificationService {
     }
   }
 
-  /// Displays or updates a progress notification with a progress bar.
+  /// Displays or updates a progress notification with a progress bar and Cancel button.
   Future<void> showProgress({
     required int percent,
     required String content,
@@ -83,6 +97,15 @@ class NotificationService {
         onlyAlertOnce: true,
         ongoing: true,
         icon: '@mipmap/launcher_icon',
+        // Add the Cancel action button directly to the notification
+        actions: const <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            'cancel_encode',
+            'Cancel',
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+        ],
       );
       const iosDetails = DarwinNotificationDetails();
       final details = NotificationDetails(
@@ -90,7 +113,6 @@ class NotificationService {
         iOS: iosDetails,
       );
 
-      // v22.x Migration: Use named parameters for `show`
       await _plugin.show(
         id: _progressNotificationId,
         title: 'Transcoding Video',
@@ -104,7 +126,6 @@ class NotificationService {
   Future<void> cancelProgress() async {
     if (!_initialized) return;
     try {
-      // v22.x Migration: Use named parameter `id` for `cancel`
       await _plugin.cancel(id: _progressNotificationId);
     } catch (_) {}
   }
@@ -120,6 +141,9 @@ class NotificationService {
         importance: Importance.high,
         priority: Priority.high,
         icon: '@mipmap/launcher_icon',
+        // Enable grouping so multiple completions bundle into a summary
+        groupKey: _encodeGroupKey,
+        setAsGroupSummary: false,
       );
       final details = NotificationDetails(android: androidDetails);
 
@@ -143,6 +167,9 @@ class NotificationService {
         importance: Importance.high,
         priority: Priority.high,
         icon: '@mipmap/launcher_icon',
+        // Enable grouping so multiple failures bundle into a summary
+        groupKey: _encodeGroupKey,
+        setAsGroupSummary: false,
       );
       final details = NotificationDetails(android: androidDetails);
 

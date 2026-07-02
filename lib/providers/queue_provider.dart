@@ -25,6 +25,9 @@ final queueProvider = NotifierProvider<QueueNotifier, List<EncodeTask>>(
 class QueueNotifier extends Notifier<List<EncodeTask>> {
   @override
   List<EncodeTask> build() {
+    // Link the notification cancel button directly to the cancelActive method
+    NotificationService.onCancelRequested = cancelActive;
+
     ref.listen<EncodeProgress?>(activeEncodeProvider, (_, p) {
       if (p != null) {
         // Update Foreground Service Text
