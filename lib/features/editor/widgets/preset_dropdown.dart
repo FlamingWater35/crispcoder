@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../data/models/transcode_preset.dart';
 
-/// Dropdown for selecting a built-in or custom preset.
+/// Selector for choosing a built-in or custom preset using ChoiceChips.
 class PresetDropdown extends StatelessWidget {
   const PresetDropdown({
     super.key,
@@ -17,21 +17,22 @@ class PresetDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DropdownButtonFormField<String>(
-      decoration: const InputDecoration(
-        labelText: 'Preset',
-        border: OutlineInputBorder(),
-      ),
-      initialValue: selectedPresetId,
-      items: [
-        const DropdownMenuItem(
-          value: 'custom',
-          child: Text('Custom (Match Source)'),
+    return Wrap(
+      spacing: 8.0,
+      runSpacing: 8.0,
+      children: [
+        ChoiceChip(
+          label: const Text('Custom (Match Source)'),
+          selected: selectedPresetId == 'custom',
+          onSelected: (_) => onChanged('custom'),
         ),
         for (final p in presets)
-          DropdownMenuItem(value: p.id, child: Text(p.name)),
+          ChoiceChip(
+            label: Text(p.name),
+            selected: selectedPresetId == p.id,
+            onSelected: (_) => onChanged(p.id),
+          ),
       ],
-      onChanged: onChanged,
     );
   }
 }

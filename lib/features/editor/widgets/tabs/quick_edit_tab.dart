@@ -70,6 +70,12 @@ class QuickEditTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+    );
+
     final startDur = _parseTimeToDuration(startController.text);
     final endDur = _parseTimeToDuration(endController.text);
     final trimDuration =
@@ -113,8 +119,8 @@ class QuickEditTab extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: Text(
             'Trimmed length: ${_formatDuration(trimDuration)}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.primary,
               fontWeight: FontWeight.w600,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
@@ -135,49 +141,68 @@ class QuickEditTab extends StatelessWidget {
     // Add Mode-Specific options
     if (outputType == OutputType.video) {
       editChildren.addAll([
-        const SizedBox(height: 12),
-        SwitchListTile(
-          title: const Text('Remove Audio'),
-          subtitle: const Text('Strip the audio track from the output'),
-          value: removeAudio,
-          onChanged: onRemoveAudioChanged,
-          contentPadding: EdgeInsets.zero,
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<int?>(
-          decoration: const InputDecoration(
-            labelText: 'Hardcode Subtitles (Burn-in)',
-            border: OutlineInputBorder(),
+        const SizedBox(height: 16),
+        // Wrapped SwitchListTile in a Card for proper focus styling and rounding
+        Card(
+          elevation: 0,
+          color: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.0),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
           ),
-          initialValue: burnSubtitleIndex,
-          items: [
-            const DropdownMenuItem<int?>(value: null, child: Text('None')),
+          child: SwitchListTile(
+            title: const Text('Remove Audio'),
+            subtitle: const Text('Strip the audio track from the output'),
+            value: removeAudio,
+            onChanged: onRemoveAudioChanged,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 4.0,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text('Hardcode Subtitles (Burn-in)', style: labelStyle),
+        const SizedBox(height: 8),
+        // Subtitle Chips
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          children: [
+            ChoiceChip(
+              label: const Text('None'),
+              selected: burnSubtitleIndex == null,
+              onSelected: (_) => onSubtitleChanged(null),
+            ),
             for (final sub in subtitleTracks)
-              DropdownMenuItem<int?>(
-                value: sub.subtitleStreamIndex,
-                child: Text(sub.label),
+              ChoiceChip(
+                label: Text(sub.label),
+                selected: burnSubtitleIndex == sub.subtitleStreamIndex,
+                onSelected: (_) => onSubtitleChanged(sub.subtitleStreamIndex),
               ),
           ],
-          onChanged: onSubtitleChanged,
         ),
       ]);
     } else if (outputType == OutputType.subtitle) {
       editChildren.addAll([
-        const SizedBox(height: 12),
-        DropdownButtonFormField<int?>(
-          decoration: const InputDecoration(
-            labelText: 'Extract Subtitle Track',
-            border: OutlineInputBorder(),
-          ),
-          initialValue: burnSubtitleIndex,
-          items: [
+        const SizedBox(height: 16),
+        Text('Extract Subtitle Track', style: labelStyle),
+        const SizedBox(height: 8),
+        // Subtitle Chips
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          children: [
             for (final sub in subtitleTracks)
-              DropdownMenuItem<int?>(
-                value: sub.subtitleStreamIndex,
-                child: Text(sub.label),
+              ChoiceChip(
+                label: Text(sub.label),
+                selected: burnSubtitleIndex == sub.subtitleStreamIndex,
+                onSelected: (_) => onSubtitleChanged(sub.subtitleStreamIndex),
               ),
           ],
-          onChanged: onSubtitleChanged,
         ),
       ]);
     }
