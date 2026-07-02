@@ -86,8 +86,22 @@ class VideoTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final standardAspectRatios = ['16:9', '4:3', '1:1', '9:16', '21:9'];
-    final standardResolutions = [2160, 1440, 1080, 720, 480, 360];
+    // Expanded aspect ratios
+    final standardAspectRatios = [
+      '16:9',
+      '4:3',
+      '1:1',
+      '9:16',
+      '21:9',
+      '2.39:1',
+      '3:2',
+      '1.85:1',
+      '5:4',
+    ];
+
+    // Expanded resolutions
+    final standardResolutions = [2160, 1440, 1080, 720, 480, 360, 240];
+
     final swPresets = [
       'ultrafast',
       'superfast',
@@ -98,7 +112,8 @@ class VideoTab extends ConsumerWidget {
       'slow',
     ];
 
-    final fpsOptions = [24, 25, 30, 60];
+    // Expanded framerates
+    final fpsOptions = [15, 24, 25, 30, 45, 60, 90, 120];
     if (_originalFps != null && !fpsOptions.contains(_originalFps)) {
       fpsOptions.add(_originalFps!);
     }
@@ -262,7 +277,6 @@ class VideoTab extends ConsumerWidget {
                     for (final ar in standardAspectRatios)
                       if (ar != _originalAspectRatio && ar != currentAR)
                         DropdownMenuItem<String?>(value: ar, child: Text(ar)),
-                    // Display the custom visual aspect ratio if it doesn't match standard ones
                     if (currentAR != null &&
                         currentAR != _originalAspectRatio &&
                         !standardAspectRatios.contains(currentAR))

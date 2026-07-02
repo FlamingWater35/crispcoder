@@ -1,10 +1,10 @@
 import 'package:hive_ce/hive_ce.dart';
 
 /// Video codec selection. `copy` bypasses re-encoding (passthrough).
-enum VideoCodec { h264, hevc, av1, copy }
+enum VideoCodec { h264, hevc, av1, vp9, copy }
 
 /// Audio codec selection.
-enum AudioCodec { aac, opus, mp3, ac3, copy }
+enum AudioCodec { aac, opus, mp3, ac3, flac, vorbis, copy }
 
 /// Output container format.
 enum ContainerFormat { mp4, mkv, webm }
@@ -148,6 +148,8 @@ class TranscodePreset {
         AudioCodec.opus => 'opus',
         AudioCodec.mp3 => 'mp3',
         AudioCodec.ac3 => 'ac3',
+        AudioCodec.flac => 'flac',
+        AudioCodec.vorbis => 'ogg',
         AudioCodec.copy => 'm4a',
       };
     }
@@ -177,7 +179,6 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       videoCodec: VideoCodec.values[r.readByte()],
       crf: r.readByte() == 1 ? r.readInt() : null,
       videoBitrate: r.readByte() == 1 ? r.readInt() : null,
-      // V5 Migration: videoPreset added
       videoPreset: r.readByte() == 1 ? r.readString() : null,
       resolution: r.readByte() == 1 ? r.readInt() : null,
       aspectRatio: r.readByte() == 1 ? r.readString() : null,

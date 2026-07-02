@@ -50,13 +50,13 @@ Future<void> main() async {
   Hive.registerAdapter(EncodeStatusAdapter());
 
   try {
-    // DB Migration V5: Added Video Preset (Speed) property
+    // DB Migration V6: Added VP9, FLAC, Vorbis codecs
     final settingsBox = await Hive.openBox(AppConstants.boxSettings);
     final schemaVersion =
         settingsBox.get(AppConstants.keySchemaVersion) as int? ?? 1;
-    if (schemaVersion < 5) {
+    if (schemaVersion < 6) {
       await Hive.deleteBoxFromDisk(AppConstants.boxPresets);
-      await settingsBox.put(AppConstants.keySchemaVersion, 5);
+      await settingsBox.put(AppConstants.keySchemaVersion, 6);
     }
 
     await PathHelpers.clearAppCache();

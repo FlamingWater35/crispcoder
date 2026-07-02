@@ -31,13 +31,18 @@ class AudioTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final standardAudioBitrates = [320, 256, 192, 160, 128, 96];
+    // Expanded audio bitrates
+    final standardAudioBitrates = [512, 320, 256, 192, 160, 128, 96, 64];
     final audioBitrateOptions = [...standardAudioBitrates];
     if (_originalAudioBitrate != null &&
         !audioBitrateOptions.contains(_originalAudioBitrate)) {
       audioBitrateOptions.add(_originalAudioBitrate!);
     }
     audioBitrateOptions.sort((a, b) => b.compareTo(a));
+
+    // Hide bitrate selector if the codec is lossless (FLAC) or copy
+    final showBitrate =
+        !isAudioCopy && !removeAudio && audioCodec != AudioCodec.flac;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -64,7 +69,7 @@ class AudioTab extends StatelessWidget {
             }).toList(),
             onChanged: onAudioCodecChanged,
           ),
-          if (!isAudioCopy && !removeAudio) ...[
+          if (showBitrate) ...[
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
               decoration: const InputDecoration(

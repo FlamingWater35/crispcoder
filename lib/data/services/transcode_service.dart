@@ -65,6 +65,9 @@ class TranscodeService {
       case VideoCodec.av1:
         if (wantsHw && cap.supportsAv1Hw) return 'av1_mediacodec';
         return 'libsvtav1';
+      case VideoCodec.vp9:
+        // Hardware VP9 encoding support is spotty on Android, sticking to software
+        return 'libvpx-vp9';
       case VideoCodec.copy:
         return 'copy';
     }
@@ -76,6 +79,8 @@ class TranscodeService {
       AudioCodec.opus => 'libopus',
       AudioCodec.mp3 => 'libmp3lame',
       AudioCodec.ac3 => 'ac3',
+      AudioCodec.flac => 'flac',
+      AudioCodec.vorbis => 'libvorbis',
       AudioCodec.copy => 'copy',
     };
   }
@@ -101,12 +106,11 @@ class TranscodeService {
       }
       args.addAll(['-vn', '-sn']); // No video, no subtitles
       if (preset.audioCodec != AudioCodec.copy) {
-        args.addAll([
-          '-c:a',
-          _resolveAudioEncoder(preset.audioCodec),
-          '-b:a',
-          '${preset.audioBitrate}k',
-        ]);
+        args.addAll(['-c:a', _resolveAudioEncoder(preset.audioCodec)]);
+        // FLAC is lossless, bitrate doesn't apply
+        if (preset.audioCodec != AudioCodec.flac) {
+          args.addAll(['-b:a', '${preset.audioBitrate}k']);
+        }
       } else {
         args.addAll(['-c:a', 'copy']);
       }
@@ -132,7 +136,6 @@ class TranscodeService {
     // Standard Video Transcode Logic
 
     // Performance Optimization: Use hardware decoding if aiming for hardware encoding.
-    // This prevents the CPU from decoding frames before sending them to the HW encoder.
     bool wantsHw =
         preset.encoderPref == EncoderPreference.hardware ||
         (preset.encoderPref == EncoderPreference.auto && cap.preferHardware);
@@ -206,17 +209,19 @@ class TranscodeService {
         args.addAll(['-b:v', '${bitrate ~/ 1000}k']);
       } else {
         // Performance Optimization: Explicitly set thread count for software encoders
-        // to fully utilize modern multi-core CPUs.
         args.addAll(['-threads', '${cap.recommendedThreadCount}']);
 
         if (preset.crf != null) {
           args.addAll(['-crf', '${preset.crf}']);
 
-          // Apply selected encoder preset (speed/quality trade-off)
           final swPreset = preset.videoPreset ?? 'fast';
           if (preset.videoCodec == VideoCodec.h264 ||
               preset.videoCodec == VideoCodec.hevc) {
             args.addAll(['-preset', swPreset]);
+          } else if (preset.videoCodec == VideoCodec.vp9) {
+            // VP9 requires -b:v 0 to actually act as a CRF-based constant quality encoder
+            args.addAll(['-b:v', '0']);
+            args.addAll(['-row-mt', '1']); // Enable row-based multi-threading
           }
         } else if (preset.videoBitrate != null) {
           args.addAll(['-b:v', '${preset.videoBitrate! ~/ 1000}k']);
@@ -240,12 +245,12 @@ class TranscodeService {
       if (preset.removeAudio) {
         args.addAll(['-an']);
       } else {
-        args.addAll([
-          '-c:a',
-          _resolveAudioEncoder(preset.audioCodec),
-          '-b:a',
-          '${preset.audioBitrate}k',
-        ]);
+        args.addAll(['-c:a', _resolveAudioEncoder(preset.audioCodec)]);
+        // FLAC is lossless, bitrate doesn't apply
+        if (preset.audioCodec != AudioCodec.flac &&
+            preset.audioCodec != AudioCodec.copy) {
+          args.addAll(['-b:a', '${preset.audioBitrate}k']);
+        }
       }
       if (preset.faststart && preset.container == ContainerFormat.mp4) {
         args.addAll(['-movflags', '+faststart']);
