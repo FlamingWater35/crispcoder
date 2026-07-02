@@ -7,7 +7,7 @@ import '../encoder_pref_info.dart';
 import '../section_card.dart';
 
 /// Video Tab: Codecs, Rate Control, Aspect Ratio, Resolution, Framerate.
-/// Shows computed output dimensions when a resolution is selected.
+/// Dynamically hides CRF and speed presets if hardware encoding is active.
 class VideoTab extends ConsumerWidget {
   const VideoTab({
     super.key,
@@ -32,6 +32,8 @@ class VideoTab extends ConsumerWidget {
     required this.onResolutionChanged,
     required this.framerate,
     required this.onFramerateChanged,
+    required this.isUsingHw,
+    required this.encoderFeedback,
   });
 
   final MediaInfo mediaInfo;
@@ -55,6 +57,12 @@ class VideoTab extends ConsumerWidget {
   final void Function(int?) onResolutionChanged;
   final int? framerate;
   final void Function(int?) onFramerateChanged;
+
+  /// Whether the resolved encoder is Hardware (MediaCodec).
+  final bool isUsingHw;
+
+  /// Warning message if software encoding is forced.
+  final String encoderFeedback;
 
   bool get _isVideoCopy => videoCodec == VideoCodec.copy;
 
@@ -88,7 +96,6 @@ class VideoTab extends ConsumerWidget {
 
   /// Computes the output dimension string for the currently selected
   /// resolution, based on the source's actual width and height.
-  /// Returns null if dimensions can't be computed.
   String? _outputDimensionsText() {
     final res = resolution;
     final w = mediaInfo.width;
@@ -100,7 +107,6 @@ class VideoTab extends ConsumerWidget {
       sourceHeight: h,
     );
     if (dims == null) return null;
-    // Indicate when no scaling occurs (output matches source)
     if (dims.$1 == w && dims.$2 == h) {
       return 'Output: ${dims.$1}×${dims.$2} (no scaling)';
     }
@@ -169,7 +175,10 @@ class VideoTab extends ConsumerWidget {
                 }).toList(),
               ),
               const SizedBox(height: 8),
-              const EncoderPrefInfo(),
+              EncoderPrefInfo(
+                isUsingHw: isUsingHw,
+                feedbackMessage: encoderFeedback,
+              ),
               if (!_isVideoCopy) ...[
                 const SizedBox(height: 16),
                 Align(
@@ -177,55 +186,8 @@ class VideoTab extends ConsumerWidget {
                   child: Text('Rate Control', style: labelStyle),
                 ),
                 const SizedBox(height: 8),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: true, label: Text('CRF')),
-                    ButtonSegment(value: false, label: Text('Bitrate')),
-                  ],
-                  selected: {useCrf},
-                  onSelectionChanged: onUseCrfChanged,
-                ),
-                if (useCrf) ...[
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 56,
-                        child: Text(
-                          'CRF $crf',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Slider(
-                          value: crf.toDouble(),
-                          min: 0,
-                          max: 51,
-                          divisions: 51,
-                          label: crf.toString(),
-                          onChanged: onCrfChanged,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Encoder Preset (Speed)', style: labelStyle),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8.0,
-                    runSpacing: 8.0,
-                    children: swPresets.map((p) {
-                      return ChoiceChip(
-                        label: Text(p),
-                        selected: (videoPreset ?? 'fast') == p,
-                        onSelected: (_) => onVideoPresetChanged(p),
-                      );
-                    }).toList(),
-                  ),
-                ] else ...[
-                  const SizedBox(height: 16),
+                // HW encoder only supports bitrate; hide CRF/preset options.
+                if (isUsingHw) ...[
                   TextFormField(
                     decoration: const InputDecoration(
                       labelText: 'Video Bitrate (kbps)',
@@ -235,6 +197,68 @@ class VideoTab extends ConsumerWidget {
                     keyboardType: TextInputType.number,
                     onChanged: onVideoBitrateChanged,
                   ),
+                ] else ...[
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: true, label: Text('CRF')),
+                      ButtonSegment(value: false, label: Text('Bitrate')),
+                    ],
+                    selected: {useCrf},
+                    onSelectionChanged: onUseCrfChanged,
+                  ),
+                  if (useCrf) ...[
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 56,
+                          child: Text(
+                            'CRF $crf',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Slider(
+                            value: crf.toDouble(),
+                            min: 0,
+                            max: 51,
+                            divisions: 51,
+                            label: crf.toString(),
+                            onChanged: onCrfChanged,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Encoder Preset (Speed)', style: labelStyle),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8.0,
+                      runSpacing: 8.0,
+                      children: swPresets.map((p) {
+                        return ChoiceChip(
+                          label: Text(p),
+                          selected: (videoPreset ?? 'fast') == p,
+                          onSelected: (_) => onVideoPresetChanged(p),
+                        );
+                      }).toList(),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      decoration: const InputDecoration(
+                        labelText: 'Video Bitrate (kbps)',
+                        border: OutlineInputBorder(),
+                      ),
+                      initialValue: videoBitrate.toString(),
+                      keyboardType: TextInputType.number,
+                      onChanged: onVideoBitrateChanged,
+                    ),
+                  ],
                 ],
               ],
             ],
@@ -306,9 +330,6 @@ class VideoTab extends ConsumerWidget {
                 const SizedBox(height: 16),
                 Text('Resolution', style: labelStyle),
                 const SizedBox(height: 8),
-                // Resolution chips: "Original" shows source dimensions,
-                // standard chips show the label (e.g. "1080p").
-                // A helper text below shows the computed output dimensions.
                 Wrap(
                   spacing: 8.0,
                   runSpacing: 8.0,
@@ -331,7 +352,6 @@ class VideoTab extends ConsumerWidget {
                         ),
                   ],
                 ),
-                // Show computed output dimensions for the selected resolution
                 if (outputDims != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 8.0),

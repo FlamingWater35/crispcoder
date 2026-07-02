@@ -11,6 +11,7 @@ import '../../data/models/transcode_preset.dart';
 import '../../data/services/media_probe_service.dart';
 import '../../data/services/permission_service.dart';
 import '../../providers/app_settings_provider.dart';
+import '../../providers/device_capability_provider.dart';
 import '../../providers/preset_provider.dart';
 import '../../providers/queue_provider.dart';
 import '../preview/preview_models.dart';
@@ -42,18 +43,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   bool _probing = false;
   String? _error;
 
-  // Preset & Advanced Configuration State
   String? _selectedPresetId = 'custom';
   OutputType _outputType = OutputType.video;
   VideoCodec _videoCodec = VideoCodec.h264;
   bool _useCrf = true;
   int _crf = 23;
   int _videoBitrate = 4000;
-  String? _videoPreset = 'fast'; // Default software encoder preset
-  int? _resolution; // Height in pixels (e.g., 1080)
-  String? _aspectRatio; // String representation like "16:9"
+  String? _videoPreset = 'fast';
+  int? _resolution;
+  String? _aspectRatio;
 
-  // Visual Crop State
   double? _cropLeft;
   double? _cropTop;
   double? _cropWidth;
@@ -65,7 +64,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   ContainerFormat _container = ContainerFormat.mp4;
   bool _faststart = true;
 
-  // Editing State
   bool _removeAudio = false;
   int? _burnSubtitleIndex;
   final _startController = TextEditingController();
@@ -116,6 +114,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   }
 
   /// Applies source media properties to the state for the "Custom" preset.
+  /// Uses detectedResolution instead of raw height so that a 1920x800
+  /// source is treated as 1080p, not 800p.
   void _applySourceDefaults() {
     if (_mediaInfo == null) return;
 
@@ -194,9 +194,57 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _cropHeight = preset.cropHeight;
   }
 
+  /// Evaluates device capabilities and current settings to determine
+  /// whether hardware encoding will be used, and builds a warning message
+  /// if software encoding is forced due to subtitles or codec limits.
+  (bool, String) _resolveEncoderStatus() {
+    final settings = ref.read(appSettingsProvider);
+
+    // Safely get the DeviceCapability value if it has finished loading
+    final asyncCap = ref.read(deviceCapabilityProvider);
+    final cap = asyncCap.maybeWhen(data: (d) => d, orElse: () => null);
+
+    bool wantsHw =
+        settings.encoderPreference == EncoderPreference.hardware ||
+        (settings.encoderPreference == EncoderPreference.auto &&
+            cap?.preferHardware == true);
+
+    final bool isSubtitleBurn =
+        _burnSubtitleIndex != null && _burnSubtitleIndex! >= 0;
+
+    if (_videoCodec == VideoCodec.h264 && cap?.supportsH264Hw != true) {
+      wantsHw = false;
+    }
+    if (_videoCodec == VideoCodec.hevc && cap?.supportsHevcHw != true) {
+      wantsHw = false;
+    }
+    if (_videoCodec == VideoCodec.av1 && cap?.supportsAv1Hw != true) {
+      wantsHw = false;
+    }
+    if (_videoCodec == VideoCodec.vp9) wantsHw = false;
+
+    String feedbackMessage = '';
+    if (isSubtitleBurn) {
+      wantsHw = false;
+      feedbackMessage = 'Subtitle burn-in requires software encoder.';
+    } else if (settings.encoderPreference == EncoderPreference.hardware &&
+        !wantsHw) {
+      feedbackMessage = 'Hardware unsupported for this codec. Using software.';
+    } else if (settings.encoderPreference == EncoderPreference.auto &&
+        !wantsHw &&
+        cap?.preferHardware == true) {
+      feedbackMessage = 'Hardware unsupported for this codec. Using software.';
+    }
+
+    return (wantsHw, feedbackMessage);
+  }
+
   @override
   Widget build(BuildContext context) {
     final presets = ref.watch(presetProvider);
+
+    // Resolve encoder status dynamically on rebuild
+    final (isUsingHw, encoderFeedback) = _resolveEncoderStatus();
 
     String title = 'New Encode';
     if (_mediaInfo != null) {
@@ -223,10 +271,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                           child: MediaInfoCard(info: _mediaInfo!),
                         ),
-                        // Only build tabs if mediaInfo is available
-                        Expanded(child: _buildTabs(presets)),
+                        Expanded(
+                          child: _buildTabs(
+                            presets,
+                            isUsingHw,
+                            encoderFeedback,
+                          ),
+                        ),
                       ] else ...[
-                        // Empty state: Show mode selector and source picker
                         Expanded(
                           child: Center(
                             child: SingleChildScrollView(
@@ -261,9 +313,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Constructs the TabBar and TabBarView based on the selected OutputType.
-  /// Guaranteed to be called only when _mediaInfo is non-null.
-  Widget _buildTabs(List<TranscodePreset> presets) {
+  Widget _buildTabs(
+    List<TranscodePreset> presets,
+    bool isUsingHw,
+    String encoderFeedback,
+  ) {
     final mediaInfo = _mediaInfo!;
     final tabs = <Tab>[];
     final tabViews = <Widget>[];
@@ -331,6 +385,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           onResolutionChanged: (v) => setState(() => _resolution = v),
           framerate: _framerate,
           onFramerateChanged: (v) => setState(() => _framerate = v),
+          isUsingHw: isUsingHw,
+          encoderFeedback: encoderFeedback,
         ),
         AudioTab(
           mediaInfo: mediaInfo,
@@ -440,7 +496,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  /// Extracts the SegmentedButton for OutputType selection. Only visible on the initial screen.
   Widget _buildModeSelector() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -599,7 +654,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final sourcePath = _sourcePath;
     if (sourcePath == null) return;
 
-    // Subtitle extraction validation
     if (_outputType == OutputType.subtitle && _burnSubtitleIndex == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -625,15 +679,21 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final settings = ref.read(appSettingsProvider);
     final encoderPref = settings.encoderPreference;
 
+    // Re-evaluate encoder status for submission to ensure consistency
+    final (isUsingHw, _) = _resolveEncoderStatus();
+
+    // CRF is only valid for software encoding. If HW is used, force bitrate mode.
+    final effectiveUseCrf = !isUsingHw && _useCrf;
+
     final preset = TranscodePreset(
       id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
       name: 'Custom Encode',
       category: 'Custom',
       outputType: _outputType,
       videoCodec: _videoCodec,
-      crf: !_isVideoCopy && _useCrf ? _crf : null,
-      videoBitrate: !_isVideoCopy && !_useCrf ? _videoBitrate : null,
-      videoPreset: !_isVideoCopy && _useCrf ? _videoPreset : null,
+      crf: !_isVideoCopy && effectiveUseCrf ? _crf : null,
+      videoBitrate: !_isVideoCopy && !effectiveUseCrf ? _videoBitrate : null,
+      videoPreset: !_isVideoCopy && effectiveUseCrf ? _videoPreset : null,
       resolution: _isVideoCopy ? null : _resolution,
       aspectRatio: _isVideoCopy || _hasVisualCrop ? null : _aspectRatio,
       framerate: _isVideoCopy ? null : _framerate,
