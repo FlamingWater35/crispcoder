@@ -128,7 +128,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       orElse: () => AudioCodec.aac,
     );
 
-    _resolution = _mediaInfo?.height;
+    _resolution = _mediaInfo?.detectedResolution;
 
     final w = _mediaInfo?.width;
     final h = _mediaInfo?.height;
@@ -171,7 +171,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _crf = preset.crf ?? 23;
     _videoBitrate = preset.videoBitrate ?? 4000;
     _videoPreset = preset.videoPreset ?? 'fast';
-    _resolution = preset.resolution ?? _mediaInfo?.height;
+    _resolution = preset.resolution ?? _mediaInfo?.detectedResolution;
     _aspectRatio = preset.aspectRatio;
     _framerate = preset.framerate ?? _mediaInfo?.frameRate?.round() ?? 30;
     _audioCodec = preset.audioCodec;

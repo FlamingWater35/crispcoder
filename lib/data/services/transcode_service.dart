@@ -42,6 +42,7 @@ class TranscodeService {
   bool get isRunning => _active != null;
 
   /// Escapes file paths for safe usage inside FFmpeg filter graphs.
+  /// Colons and backslashes must be escaped to avoid parser confusion.
   String _escapeFilterPath(String path) {
     return path
         .replaceAll('\\', '\\\\')
@@ -49,11 +50,21 @@ class TranscodeService {
         .replaceAll("'", "\\'");
   }
 
-  /// Resolves the actual FFmpeg video encoder name based on user preference
+  /// Resolves the FFmpeg video encoder name based on user preference and
+  /// device capability. Forces software encoding when burning subtitles
+  /// because the libass `subtitles` filter is incompatible with MediaCodec's
+  /// surface-based pipeline.
   String _resolveVideoEncoder(TranscodePreset preset, DeviceCapability cap) {
     bool wantsHw =
         preset.encoderPref == EncoderPreference.hardware ||
         (preset.encoderPref == EncoderPreference.auto && cap.preferHardware);
+
+    // Subtitle burn-in uses the libass subtitles filter which requires
+    // CPU-accessible frames. MediaCodec encoders operate on surfaces
+    // and cannot consume filtered output, so force software here.
+    if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
+      wantsHw = false;
+    }
 
     switch (preset.videoCodec) {
       case VideoCodec.h264:
@@ -66,7 +77,6 @@ class TranscodeService {
         if (wantsHw && cap.supportsAv1Hw) return 'av1_mediacodec';
         return 'libsvtav1';
       case VideoCodec.vp9:
-        // Hardware VP9 encoding support is spotty on Android, sticking to software
         return 'libvpx-vp9';
       case VideoCodec.copy:
         return 'copy';
@@ -86,6 +96,8 @@ class TranscodeService {
   }
 
   /// Builds the FFmpeg argument list for a single encode pass.
+  /// Handles audio/subtitle extraction, video transcode with filters
+  /// (subtitles, crop, scale, fps), and two-pass encoding.
   List<String> _buildArgs({
     required EncodeTask task,
     required TranscodePreset preset,
@@ -95,7 +107,7 @@ class TranscodeService {
   }) {
     final args = <String>[];
 
-    // Handle Audio Extraction
+    // --- Audio Extraction: no video, encode audio only ---
     if (preset.outputType == OutputType.audio) {
       if (preset.startTime != null && preset.startTime!.isNotEmpty) {
         args.addAll(['-ss', preset.startTime!]);
@@ -104,10 +116,9 @@ class TranscodeService {
       if (preset.endTime != null && preset.endTime!.isNotEmpty) {
         args.addAll(['-to', preset.endTime!]);
       }
-      args.addAll(['-vn', '-sn']); // No video, no subtitles
+      args.addAll(['-vn', '-sn']);
       if (preset.audioCodec != AudioCodec.copy) {
         args.addAll(['-c:a', _resolveAudioEncoder(preset.audioCodec)]);
-        // FLAC is lossless, bitrate doesn't apply
         if (preset.audioCodec != AudioCodec.flac) {
           args.addAll(['-b:a', '${preset.audioBitrate}k']);
         }
@@ -118,7 +129,7 @@ class TranscodeService {
       return args;
     }
 
-    // Handle Subtitle Extraction
+    // --- Subtitle Extraction ---
     if (preset.outputType == OutputType.subtitle) {
       if (preset.startTime != null && preset.startTime!.isNotEmpty) {
         args.addAll(['-ss', preset.startTime!]);
@@ -127,18 +138,22 @@ class TranscodeService {
       if (preset.endTime != null && preset.endTime!.isNotEmpty) {
         args.addAll(['-to', preset.endTime!]);
       }
-      final subIndex = preset.burnSubtitleIndex ?? 0;
-      args.addAll(['-map', '0:s:$subIndex', '-an', '-vn', '-c:s', 'srt']);
+      final subIdx = preset.burnSubtitleIndex ?? 0;
+      args.addAll(['-map', '0:s:$subIdx', '-an', '-vn', '-c:s', 'srt']);
       args.add(task.outputPath);
       return args;
     }
 
-    // Standard Video Transcode Logic
+    // --- Video Transcode ---
 
-    // Performance Optimization: Use hardware decoding if aiming for hardware encoding.
     bool wantsHw =
         preset.encoderPref == EncoderPreference.hardware ||
         (preset.encoderPref == EncoderPreference.auto && cap.preferHardware);
+
+    // Force software when burning subtitles (see _resolveVideoEncoder)
+    if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
+      wantsHw = false;
+    }
 
     if (wantsHw) {
       args.addAll(['-hwaccel', 'mediacodec']);
@@ -155,13 +170,17 @@ class TranscodeService {
     }
 
     // --- Filter chain ---
+    // Order: subtitles → crop → scale → fps → custom
     final filters = <String>[];
 
+    // Burn-in subtitles using libass. Must come before scale so text
+    // is rendered at source resolution then scaled together.
     if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
-      final escapedPath = _escapeFilterPath(task.sourcePath);
-      filters.add("subtitles='$escapedPath':si=${preset.burnSubtitleIndex}");
+      final escaped = _escapeFilterPath(task.sourcePath);
+      filters.add("subtitles='$escaped':si=${preset.burnSubtitleIndex}");
     }
 
+    // Visual crop (fractional values from crop editor)
     if (preset.cropWidth != null &&
         preset.cropWidth! > 0 &&
         preset.cropHeight != null &&
@@ -172,6 +191,7 @@ class TranscodeService {
       final y = preset.cropTop ?? 0.0;
       filters.add("crop=iw*$w:ih*$h:iw*$x:ih*$y");
     } else if (preset.aspectRatio != null && preset.aspectRatio!.isNotEmpty) {
+      // Aspect ratio crop: fit video into target AR by cropping edges
       final parts = preset.aspectRatio!.split(':');
       if (parts.length == 2) {
         final arW = double.tryParse(parts[0]) ?? 1;
@@ -182,10 +202,32 @@ class TranscodeService {
       }
     }
 
+    // Resolution: fit video inside a standard 16:9 box using
+    // force_original_aspect_ratio=decrease. This means a 2.39:1 video
+    // set to "1080p" becomes 1920x800 (width=1920), NOT 1920x1080.
+    // The conditional if(gt(iw,ih),...) swaps the box for portrait sources.
     if (preset.resolution != null && preset.resolution! > 0) {
-      filters.add('scale=-2:${preset.resolution}');
+      final res = preset.resolution!;
+      const resToW = {
+        2160: 3840,
+        1440: 2560,
+        1080: 1920,
+        720: 1280,
+        576: 1024,
+        480: 854,
+        360: 640,
+        240: 426,
+      };
+      final boxW = resToW[res] ?? (res * 16 ~/ 9);
+      final boxH = res;
+      filters.add(
+        'scale=if(gt(iw\\,ih)\\,$boxW\\,$boxH)'
+        ':if(gt(iw\\,ih)\\,$boxH\\,$boxW)'
+        ':force_original_aspect_ratio=decrease:force_divisible_by=2',
+      );
     }
 
+    // Framerate resampling via fps filter (drops/duplicates frames)
     if (preset.framerate != null) {
       filters.add('fps=${preset.framerate}');
     }
@@ -196,39 +238,44 @@ class TranscodeService {
       args.addAll(['-vf', filters.join(',')]);
     }
 
+    // --- Video encoder ---
     final vEnc = _resolveVideoEncoder(preset, cap);
     args.addAll(['-c:v', vEnc]);
 
     final isHw = vEnc.endsWith('_mediacodec');
     if (vEnc != 'copy') {
       if (isHw) {
+        // HW mediacodec requires explicit bitrate; CRF is not supported
         final bitrate =
             preset.videoBitrate ??
             _crfToBitrate(preset.crf, task.totalDurationSeconds) ??
             4000000;
         args.addAll(['-b:v', '${bitrate ~/ 1000}k']);
       } else {
-        // Performance Optimization: Explicitly set thread count for software encoders
         args.addAll(['-threads', '${cap.recommendedThreadCount}']);
 
         if (preset.crf != null) {
           args.addAll(['-crf', '${preset.crf}']);
-
           final swPreset = preset.videoPreset ?? 'fast';
           if (preset.videoCodec == VideoCodec.h264 ||
               preset.videoCodec == VideoCodec.hevc) {
             args.addAll(['-preset', swPreset]);
           } else if (preset.videoCodec == VideoCodec.vp9) {
-            // VP9 requires -b:v 0 to actually act as a CRF-based constant quality encoder
-            args.addAll(['-b:v', '0']);
-            args.addAll(['-row-mt', '1']); // Enable row-based multi-threading
+            args.addAll(['-b:v', '0', '-row-mt', '1']);
           }
         } else if (preset.videoBitrate != null) {
           args.addAll(['-b:v', '${preset.videoBitrate! ~/ 1000}k']);
         }
+
+        // Set GOP (keyframe interval) to 2x framerate for seek-friendly output.
+        // This is critical for MKV containers to have proper seek indices.
+        if (preset.framerate != null) {
+          args.addAll(['-g', '${preset.framerate! * 2}']);
+        }
       }
     }
 
+    // Two-pass encoding (software only)
     if (preset.twoPass && vEnc != 'copy' && !isHw) {
       args.addAll([
         '-pass',
@@ -241,17 +288,26 @@ class TranscodeService {
       }
     }
 
+    // --- Pass 2 / Single pass: audio + output ---
     if (!isPassOne) {
       if (preset.removeAudio) {
         args.addAll(['-an']);
       } else {
         args.addAll(['-c:a', _resolveAudioEncoder(preset.audioCodec)]);
-        // FLAC is lossless, bitrate doesn't apply
         if (preset.audioCodec != AudioCodec.flac &&
             preset.audioCodec != AudioCodec.copy) {
           args.addAll(['-b:a', '${preset.audioBitrate}k']);
         }
       }
+
+      // Set output framerate metadata explicitly. The fps filter resamples
+      // frames, but -r ensures the container stream metadata is correct.
+      // -vsync cfr forces constant frame rate output, preventing VFR
+      // issues that cause seek problems and wrong bitrate reporting.
+      if (vEnc != 'copy' && preset.framerate != null) {
+        args.addAll(['-r', '${preset.framerate}', '-vsync', 'cfr']);
+      }
+
       if (preset.faststart && preset.container == ContainerFormat.mp4) {
         args.addAll(['-movflags', '+faststart']);
       }
@@ -261,7 +317,8 @@ class TranscodeService {
     return args;
   }
 
-  /// Rough CRF → target bitrate (bps) for HW fallback.
+  /// Rough CRF → target bitrate (bps) for HW fallback when CRF is set
+  /// but the mediacodec encoder only supports bitrate mode.
   int? _crfToBitrate(int? crf, double durationSeconds) {
     if (crf == null) return null;
     final base = 8000000;
@@ -269,7 +326,9 @@ class TranscodeService {
     return (base * factor).toInt();
   }
 
-  /// Starts an encode. Returns the active session handle for cancellation.
+  /// Starts an encode session. Probes duration if missing, builds args,
+  /// launches FFmpeg async with progress + log callbacks.
+  /// Returns an [ActiveSession] handle for cancellation.
   Future<ActiveSession> start({
     required EncodeTask task,
     required TranscodePreset preset,
@@ -401,7 +460,7 @@ class TranscodeService {
     return _active!;
   }
 
-  /// Cancels the active session.
+  /// Cancels the active FFmpeg session by session ID.
   Future<void> cancel() async {
     final a = _active;
     _active = null;

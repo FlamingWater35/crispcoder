@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:collection/collection.dart';
 import 'package:crispcoder/core/errors/app_exceptions.dart';
 import 'package:flutter/foundation.dart';
@@ -14,6 +16,7 @@ import '../data/services/notification_service.dart';
 import '../data/services/permission_service.dart';
 import '../data/services/transcode_service.dart';
 import 'active_encode_provider.dart';
+import 'app_settings_provider.dart';
 import 'device_capability_provider.dart';
 
 /// Queue state + orchestration of the active encode.
@@ -25,17 +28,14 @@ final queueProvider = NotifierProvider<QueueNotifier, List<EncodeTask>>(
 class QueueNotifier extends Notifier<List<EncodeTask>> {
   @override
   List<EncodeTask> build() {
-    // Link the notification cancel button directly to the cancelActive method
+    // Wire the notification "Cancel" button to cancelActive
     NotificationService.onCancelRequested = cancelActive;
 
     ref.listen<EncodeProgress?>(activeEncodeProvider, (_, p) {
       if (p != null) {
-        // Update Foreground Service Text
         ForegroundServiceWrapper.instance.updateText(
           'Progress: ${p.formattedPercent} • ${p.formattedSpeed} • ETA ${p.formattedEta}',
         );
-
-        // Update Local Notification Progress Bar
         NotificationService.instance.showProgress(
           percent: p.percent.round(),
           content:
@@ -47,11 +47,23 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
     return QueueRepository.instance.all;
   }
 
+  /// Deletes a partial output file left by a cancelled or failed encode.
+  /// Best-effort: silently ignores I/O errors.
+  Future<void> _deletePartialOutput(String outputPath) async {
+    try {
+      final file = File(outputPath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {
+      // Best-effort cleanup
+    }
+  }
+
   Future<void> enqueue(EncodeTask task) async {
     await QueueRepository.instance.upsert(task);
     state = QueueRepository.instance.all;
     if (state.where((t) => t.status == EncodeStatus.running).isEmpty) {
-      // Fire and forget startNext so UI is not blocked while encoding
       startNext();
     }
   }
@@ -59,8 +71,6 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
   Future<void> remove(String id) async {
     final task = state.firstWhereOrNull((t) => t.id == id);
     if (task != null && task.status == EncodeStatus.running) {
-      // If it's running, remove from repo first, then cancel.
-      // The startNext loop will see it's gone and not mark it as cancelled.
       await QueueRepository.instance.remove(id);
       await ref.read(transcodeServiceProvider).cancel();
     } else {
@@ -75,12 +85,12 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
   }
 
   /// Starts the next pending task. Idempotent: no-op if a task is running.
+  /// On completion, saves to gallery (only if no custom output dir is set).
+  /// On cancel/failure, deletes the partial output file.
   Future<void> startNext() async {
     EncodeTask? runningTask;
     try {
-      if (ref.read(activeEncodeProvider) != null) {
-        return;
-      }
+      if (ref.read(activeEncodeProvider) != null) return;
 
       final next = state.firstWhereOrNull(
         (t) => t.status == EncodeStatus.pending,
@@ -92,12 +102,9 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
         return;
       }
 
-      // Attempt to request notification permission silently for progress updates
       try {
         await ref.read(permissionServiceProvider).requireNotifications();
-      } catch (_) {
-        // Ignore if denied, encoding will still proceed
-      }
+      } catch (_) {}
 
       runningTask = next.copyWith(
         status: EncodeStatus.running,
@@ -133,17 +140,25 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
       await QueueRepository.instance.upsert(finished);
       await HistoryRepository.instance.add(finished);
 
-      await ref.read(galleryServiceProvider).saveToGallery(finished.outputPath);
+      // Only save to gallery when no custom output directory is configured.
+      // When a custom dir IS set, the file is already in the user's chosen
+      // location — copying to gallery would create an unwanted duplicate.
+      final settings = ref.read(appSettingsProvider);
+      if (settings.outputDirectory == null) {
+        await ref
+            .read(galleryServiceProvider)
+            .saveToGallery(finished.outputPath);
+      }
 
-      // Send completion notification
       await NotificationService.instance.cancelProgress();
       await NotificationService.instance.showCompleted(
         next.sourceName ?? 'Video',
       );
     } on EncodeCancelledException {
-      // If the task was cancelled, check if it still exists in the queue.
-      // If it does, mark it as cancelled. If not, the user removed it.
+      // Delete partial output so the user doesn't get a corrupt file
       if (runningTask != null) {
+        await _deletePartialOutput(runningTask.outputPath);
+
         final existing = QueueRepository.instance.byId(runningTask.id);
         if (existing != null) {
           final cancelled = runningTask.copyWith(
@@ -158,6 +173,9 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
     } catch (e, st) {
       debugPrint('Error during startNext: $e\n$st');
       if (runningTask != null) {
+        // Delete partial output from failed encode
+        await _deletePartialOutput(runningTask.outputPath);
+
         final failed = runningTask.copyWith(
           status: EncodeStatus.failed,
           finishedAt: DateTime.now(),
@@ -166,17 +184,15 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
         await QueueRepository.instance.upsert(failed);
         await HistoryRepository.instance.add(failed);
 
-        // Send failure notification
         await NotificationService.instance.cancelProgress();
         await NotificationService.instance.showFailed(
           runningTask.sourceName ?? 'Video',
-          e.toString().split('\n').first, // Keep it concise
+          e.toString().split('\n').first,
         );
       }
     } finally {
       ref.read(activeEncodeProvider.notifier).detach();
       state = QueueRepository.instance.all;
-      // Continue processing the queue if there are pending tasks
       if (state.any((t) => t.status == EncodeStatus.pending)) {
         await startNext();
       } else {

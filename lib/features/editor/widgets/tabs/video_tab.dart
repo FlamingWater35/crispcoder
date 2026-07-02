@@ -6,7 +6,8 @@ import '../../../../data/models/transcode_preset.dart';
 import '../encoder_pref_info.dart';
 import '../section_card.dart';
 
-/// Video Tab: Codecs, Rate Control, Aspect Ratio, Resolution, Framerate
+/// Video Tab: Codecs, Rate Control, Aspect Ratio, Resolution, Framerate.
+/// Shows computed output dimensions when a resolution is selected.
 class VideoTab extends ConsumerWidget {
   const VideoTab({
     super.key,
@@ -56,7 +57,10 @@ class VideoTab extends ConsumerWidget {
   final void Function(int?) onFramerateChanged;
 
   bool get _isVideoCopy => videoCodec == VideoCodec.copy;
-  int? get _originalRes => mediaInfo.height;
+
+  /// Uses detectedResolution (smallest standard 16:9 box that fits the source)
+  /// instead of raw height. A 1920x800 source returns 1080, not 800.
+  int? get _originalRes => mediaInfo.detectedResolution;
   int? get _originalFps => mediaInfo.frameRate?.round();
 
   String? get _originalAspectRatio {
@@ -81,6 +85,27 @@ class VideoTab extends ConsumerWidget {
   }
 
   String? get _currentAR => hasVisualCrop ? _computedVisualAR : aspectRatio;
+
+  /// Computes the output dimension string for the currently selected
+  /// resolution, based on the source's actual width and height.
+  /// Returns null if dimensions can't be computed.
+  String? _outputDimensionsText() {
+    final res = resolution;
+    final w = mediaInfo.width;
+    final h = mediaInfo.height;
+    if (res == null || w == null || h == null) return null;
+    final dims = MediaInfo.computeOutputDimensions(
+      targetResolution: res,
+      sourceWidth: w,
+      sourceHeight: h,
+    );
+    if (dims == null) return null;
+    // Indicate when no scaling occurs (output matches source)
+    if (dims.$1 == w && dims.$2 == h) {
+      return 'Output: ${dims.$1}×${dims.$2} (no scaling)';
+    }
+    return 'Output: ${dims.$1}×${dims.$2}';
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -114,6 +139,7 @@ class VideoTab extends ConsumerWidget {
     final fpsOptions = [15, 24, 25, 30, 45, 60, 90, 120];
 
     final currentAR = _currentAR;
+    final outputDims = _outputDimensionsText();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -126,7 +152,6 @@ class VideoTab extends ConsumerWidget {
             children: [
               Text('Video Codec', style: labelStyle),
               const SizedBox(height: 8),
-              // Codec Chips
               Wrap(
                 spacing: 8.0,
                 runSpacing: 8.0,
@@ -188,7 +213,6 @@ class VideoTab extends ConsumerWidget {
                   const SizedBox(height: 8),
                   Text('Encoder Preset (Speed)', style: labelStyle),
                   const SizedBox(height: 8),
-                  // Preset Chips
                   Wrap(
                     spacing: 8.0,
                     runSpacing: 8.0,
@@ -248,7 +272,6 @@ class VideoTab extends ConsumerWidget {
                 const SizedBox(height: 16),
                 Text('Aspect Ratio', style: labelStyle),
                 const SizedBox(height: 8),
-                // Aspect Ratio Chips
                 Wrap(
                   spacing: 8.0,
                   runSpacing: 8.0,
@@ -283,15 +306,17 @@ class VideoTab extends ConsumerWidget {
                 const SizedBox(height: 16),
                 Text('Resolution', style: labelStyle),
                 const SizedBox(height: 8),
-                // Resolution Chips
+                // Resolution chips: "Original" shows source dimensions,
+                // standard chips show the label (e.g. "1080p").
+                // A helper text below shows the computed output dimensions.
                 Wrap(
                   spacing: 8.0,
                   runSpacing: 8.0,
                   children: [
                     ChoiceChip(
                       label: Text(
-                        _originalRes != null
-                            ? '${_originalRes}p (Orig)'
+                        mediaInfo.width != null && mediaInfo.height != null
+                            ? 'Original (${mediaInfo.dimensionsLabel})'
                             : 'Original',
                       ),
                       selected: resolution == _originalRes,
@@ -306,10 +331,25 @@ class VideoTab extends ConsumerWidget {
                         ),
                   ],
                 ),
+                // Show computed output dimensions for the selected resolution
+                if (outputDims != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        outputDims,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 16),
                 Text('Framerate', style: labelStyle),
                 const SizedBox(height: 8),
-                // Framerate Chips
                 Wrap(
                   spacing: 8.0,
                   runSpacing: 8.0,
