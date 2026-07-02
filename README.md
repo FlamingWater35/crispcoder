@@ -1,13 +1,13 @@
 # CrispCoder 🎬
 
-![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)
-![Dart](https://img.shields.io/badge/Dart-%230175C2.svg?style=for-the-badge&logo=dart&logoColor=white)
-![FFmpeg](https://img.shields.io/badge/Powered%20By-FFmpeg-%23101416?style=for-the-badge&logo=ffmpeg&logoColor=white)
-![Riverpod](https://img.shields.io/badge/State-Riverpod-%231C2434?style=for-the-badge&logo=riverpod&logoColor=white)
-![Hive](https://img.shields.io/badge/Storage-Hive-%23FF8B24?style=for-the-badge&logo=hive&logoColor=white)
-![Platform](https://img.shields.io/badge/Platform-Android-green?style=for-the-badge)
+![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=flat-square&logo=Flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-%230175C2.svg?style=flat-square&logo=dart&logoColor=white)
+![FFmpeg](https://img.shields.io/badge/Powered%20By-FFmpeg-%23101416?style=flat-square&logo=ffmpeg&logoColor=white)
+![Riverpod](https://img.shields.io/badge/State-Riverpod-%231C2434?style=flat-square&logo=riverpod&logoColor=white)
+![Hive](https://img.shields.io/badge/Storage-Hive-%23FF8B24?style=flat-square&logo=hive&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Android-green?style=flat-square)
 
-**CrispCoder** is a modern video transcoder for Android devices, built with Flutter and powered by FFmpeg. It allows queueing multiple video encoding tasks, configuring advanced transcode presets, burning in subtitles, trimming video durations, visually cropping aspect ratios, and managing hardware/software encoding preferences—all while running reliably in the background.
+**CrispCoder** is a modern video transcoder for Android devices, built with Flutter and powered by FFmpeg. It allows queueing multiple video encoding tasks, configuring advanced transcode presets, burning in subtitles, trimming video durations, visually cropping aspect ratios, extracting audio/subtitles, and managing hardware/software encoding preferences—all while running reliably in the background.
 
 <div align="center">
   <a href="https://github.com/FlamingWater35/crispcoder/releases/latest">
@@ -17,11 +17,26 @@
 
 ---
 
+## 📷 Screenshots
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center"><img src="assets\screenshots\Screenshot 2026-07-02 094656.png" width="250px" alt="Video Options"><br><sub>Video Options</sub></td>
+      <td align="center"><img src="assets\screenshots\Screenshot 2026-07-02 094834.png" width="250px" alt="Quick Options"><br><sub>Quick Options</sub></td>
+      <td align="center"><img src="assets\screenshots\Screenshot 2026-07-02 094737.png" width="250px" alt="Visual Crop Editor"><br><sub>Visual Crop Editor</sub></td>
+      <td align="center"><img src="assets\screenshots\Screenshot 2026-07-02 094616.png" width="250px" alt="Settings Screen"><br><sub>Settings Screen</sub></td>
+    </tr>
+  </table>
+</div>
+
+---
+
 ## ✨ Features
 
 - **🎬 Advanced Transcoding Engine**
   - Powered by `ffmpeg`.
-  - Hardware (`h264_mediacodec`, `hevc_mediacodec`) and Software (`libx264`, `libx265`) encoding support.
+  - Hardware (`h264_mediacodec`, `hevc_mediacodec`) and Software (`libx264`, `libx265`, `libvpx-vp9`) encoding support.
   - Hardware-accelerated decoding (`-hwaccel mediacodec`) for optimized processing speed.
   - Configurable software encoder presets (`ultrafast` to `slow`) to balance speed and compression.
   - Multi-threaded software encoding optimized for modern multi-core CPUs.
@@ -31,6 +46,7 @@
   - Concurrent background queue processing.
   - Crash recovery: queue state is persisted locally and restored on app restart.
   - Live progress updates (Percentage, FPS, Speed, ETA, Bitrate).
+  - Interactive notifications with a "Cancel" action button and grouped completion alerts.
 
 - **✂️ Editing & Customization**
   - Trim video start and end times visually or manually (`HH:MM:SS`).
@@ -119,7 +135,7 @@ lib/
 ├── data/
 │   ├── models/                   # Data models (EncodeTask, MediaInfo, TranscodePreset)
 │   ├── repositories/             # Hive-backed data stores (Queue, Presets, Settings)
-│   └── services/                 # External APIs (FFmpeg, Permissions, Device Info)
+│   └── services/                 # External APIs (FFmpeg, Permissions, Device Info, Notifications)
 ├── features/
 │   ├── editor/                   # UI for configuring a new encode task
 │   ├── home/                     # Queue screen and queue tile widgets
