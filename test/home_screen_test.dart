@@ -159,6 +159,34 @@ void main() {
     expect(find.text('Completed'), findsNWidgets(2)); // stat chip + header
   });
 
+  testWidgets('completed tasks are sorted newest-first', (tester) async {
+    await seed(tester, [
+      task(
+        id: 'done-old',
+        name: 'older.mp4',
+        status: EncodeStatus.completed,
+        finishedAt: DateTime.now().subtract(const Duration(hours: 2)),
+      ),
+      task(
+        id: 'done-new',
+        name: 'newest.mp4',
+        status: EncodeStatus.completed,
+        finishedAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      ),
+    ]);
+
+    await pumpHome(tester);
+
+    // Both tiles render
+    expect(find.text('older.mp4'), findsOneWidget);
+    expect(find.text('newest.mp4'), findsOneWidget);
+
+    // Newest (finished later) must be rendered ABOVE the older one.
+    final newestY = tester.getTopLeft(find.text('newest.mp4')).dy;
+    final olderY = tester.getTopLeft(find.text('older.mp4')).dy;
+    expect(newestY, lessThan(olderY));
+  });
+
   testWidgets('running task shows spotlight with cancel', (tester) async {
     await seed(tester, [
       task(id: 'run-1', name: 'live.mp4', status: EncodeStatus.running),

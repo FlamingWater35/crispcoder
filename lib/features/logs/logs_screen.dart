@@ -104,21 +104,25 @@ class _LogsScreenState extends State<LogsScreen> {
   }
 
   /// Shows/hides the jump-to-bottom FAB based on scroll position.
+  ///
+  /// The list is `reverse: true`, so pixels == 0 is the BOTTOM (newest log)
+  /// and maxScrollExtent is the TOP. The FAB appears when the user has
+  /// scrolled away from the bottom.
   void _onScroll() {
     // Guard against detached positions (e.g. list swaps during search) so
     // listeners never throw while the scrollbar is being dragged.
     if (!_scrollController.hasClients) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
-    final shouldShow = maxScroll - currentScroll > 250;
+    // In a reverse list, "away from bottom" = scrolled toward the top.
+    final shouldShow = currentScroll > 250;
     _showFabNotifier.value = shouldShow;
   }
 
-  /// Smoothly scrolls to the latest log entry.
+  /// Smoothly scrolls to the latest (bottom) log entry.
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
+        0, // reverse list: 0 is the bottom
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
@@ -193,15 +197,17 @@ class _LogsScreenState extends State<LogsScreen> {
                     interactive: true, // Makes the scrollbar draggable
                     thickness: 10,
                     radius: Radius.circular(6),
-                    // Only animate the scrollbar when the log list itself is
-                    // scrolling, not when the SearchBar/AppBar rebuild.
-                    notificationPredicate: (notification) =>
-                        notification.depth == 0,
                     child: ListView.builder(
                       controller: _scrollController,
+                      // reverse: true anchors the list at the bottom (newest
+                      // log), so appending entries never shifts the viewport
+                      // or makes the scrollbar thumb jump.
+                      reverse: true,
                       itemCount: filteredLogs.length,
                       itemBuilder: (context, i) {
-                        final entry = filteredLogs[i];
+                        // In a reverse list, index 0 renders at the bottom.
+                        final entry = filteredLogs[
+                            filteredLogs.length - 1 - i];
                         return _LogTile(entry: entry);
                       },
                     ),

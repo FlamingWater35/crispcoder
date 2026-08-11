@@ -52,7 +52,14 @@ class HomeScreen extends ConsumerWidget {
         .toList();
     final completed = queue
         .where((t) => t.status == EncodeStatus.completed)
-        .toList();
+        .toList()
+      // Newest completions first: `finishedAt` reflects when the encode
+      // actually finished (createdAt is the enqueue time).
+      ..sort(
+        (a, b) => (b.finishedAt ?? b.createdAt).compareTo(
+          a.finishedAt ?? a.createdAt,
+        ),
+      );
 
     return Scaffold(
       appBar: AppBar(

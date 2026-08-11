@@ -73,15 +73,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
 
-    // Initially no scroll → FAB hidden
+    // Initially anchored at the bottom → FAB hidden
     expect(find.byIcon(Icons.arrow_downward_rounded), findsNothing);
 
-    // Scroll down a little (not to bottom) → FAB appears
-    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    // Scroll toward the top (drag down in a reverse list) → FAB appears
+    await tester.drag(find.byType(ListView), const Offset(0, 500));
     await tester.pump();
     expect(find.byIcon(Icons.arrow_downward_rounded), findsOneWidget);
 
-    // Scroll to bottom → FAB hides
+    // Scroll back to the bottom (drag up) → FAB hides
     await tester.drag(find.byType(ListView), const Offset(0, -10000));
     await tester.pump();
     expect(find.byIcon(Icons.arrow_downward_rounded), findsNothing);
