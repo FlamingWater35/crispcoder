@@ -8,6 +8,8 @@ void main() {
     WidgetTester tester, {
     OutputType type = OutputType.video,
     ValueChanged<OutputType>? onChanged,
+    bool probing = false,
+    bool isPicking = false,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -15,7 +17,8 @@ void main() {
           body: EditorWelcomeView(
             outputType: type,
             onOutputTypeChanged: onChanged ?? (_) {},
-            probing: false,
+            probing: probing,
+            isPicking: isPicking,
             onPick: () {},
           ),
         ),
@@ -59,21 +62,18 @@ void main() {
   });
 
   testWidgets('probing shows the reading state', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: EditorWelcomeView(
-            outputType: OutputType.video,
-            onOutputTypeChanged: (_) {},
-            probing: true,
-            onPick: () {},
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    await pumpWelcome(tester, probing: true);
 
     expect(find.text('Reading source…'), findsOneWidget);
+    expect(find.text('Analyzing metadata'), findsOneWidget);
+  });
+
+  testWidgets('picking shows the opening-file-picker state', (tester) async {
+    await pumpWelcome(tester, isPicking: true);
+
+    expect(find.text('Opening file picker…'), findsOneWidget);
+    expect(find.text('Choose a video file'), findsOneWidget);
+    // Not yet in the reading/probing state.
+    expect(find.text('Reading source…'), findsNothing);
   });
 }

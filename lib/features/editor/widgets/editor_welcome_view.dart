@@ -15,12 +15,16 @@ class EditorWelcomeView extends StatelessWidget {
     required this.outputType,
     required this.onOutputTypeChanged,
     required this.probing,
+    required this.isPicking,
     required this.onPick,
   });
 
   final OutputType outputType;
   final ValueChanged<OutputType> onOutputTypeChanged;
   final bool probing;
+
+  /// True while the platform file picker is open.
+  final bool isPicking;
   final VoidCallback onPick;
 
   @override
@@ -136,6 +140,7 @@ class EditorWelcomeView extends StatelessWidget {
               SourcePicker(
                 path: null,
                 probing: probing,
+                isPicking: isPicking,
                 onPick: onPick,
               ),
             ],

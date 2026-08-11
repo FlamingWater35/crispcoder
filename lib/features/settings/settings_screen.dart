@@ -355,10 +355,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 leading: const Icon(Icons.info_outline),
                 title: const Text('CrispCoder'),
                 subtitle: const Text(
-                  'Handbrake-inspired transcoder • Powered by FFmpeg',
+                  'Multipurpose video transcoder for Android',
                 ),
+                trailing: const Icon(Icons.chevron_right),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
+                ),
+                // Opens the app's licenses page (package licenses incl.
+                // FFmpeg, which the transcoder is built on).
+                onTap: () => showLicensePage(
+                  context: context,
+                  applicationName: 'CrispCoder',
+                  applicationVersion: 'v$_currentVersion',
+                  applicationLegalese: 'Video transcoder for Android',
                 ),
               ),
             ),

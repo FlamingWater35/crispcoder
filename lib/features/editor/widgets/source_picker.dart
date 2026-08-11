@@ -12,11 +12,15 @@ class SourcePicker extends StatelessWidget {
     super.key,
     required this.path,
     required this.probing,
+    required this.isPicking,
     required this.onPick,
   });
 
   final String? path;
   final bool probing;
+
+  /// True while the platform file picker is open (before a file is chosen).
+  final bool isPicking;
   final VoidCallback onPick;
 
   @override
@@ -28,6 +32,8 @@ class SourcePicker extends StatelessWidget {
     return Semantics(
       label: probing
           ? 'Reading source video'
+          : isPicking
+          ? 'Opening file picker'
           : isPicked
           ? 'Source video: ${path!.split('/').last}. Tap to change.'
           : 'Select source video',
@@ -35,7 +41,7 @@ class SourcePicker extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: probing ? null : onPick,
+          onTap: (probing || isPicking) ? null : onPick,
           borderRadius: BorderRadius.circular(16),
           child: Container(
             padding: const EdgeInsets.all(20),
@@ -55,9 +61,9 @@ class SourcePicker extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    // Icon with a breathing pulse while probing.
+                    // Icon with a breathing pulse while picking/reading.
                     _PulsingIcon(
-                      probing: probing,
+                      probing: probing || isPicking,
                       isPicked: isPicked,
                     ),
                     const SizedBox(width: 16),
@@ -68,6 +74,8 @@ class SourcePicker extends StatelessWidget {
                           Text(
                             probing
                                 ? 'Reading source…'
+                                : isPicking
+                                ? 'Opening file picker…'
                                 : (isPicked
                                       ? 'Source video'
                                       : 'Select source video'),
@@ -79,6 +87,8 @@ class SourcePicker extends StatelessWidget {
                           Text(
                             probing
                                 ? 'Analyzing metadata'
+                                : isPicking
+                                ? 'Choose a video file'
                                 : (isPicked
                                       ? path!.split('/').last
                                       : 'Tap to choose a video file'),
@@ -89,7 +99,7 @@ class SourcePicker extends StatelessWidget {
                         ],
                       ),
                     ),
-                    if (probing)
+                    if (probing || isPicking)
                       SizedBox(
                         width: 20,
                         height: 20,
@@ -108,7 +118,7 @@ class SourcePicker extends StatelessWidget {
                 // Indeterminate progress bar shown only while loading.
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
-                  child: probing
+                  child: probing || isPicking
                       ? Padding(
                           key: const ValueKey('probing-bar'),
                           padding: const EdgeInsets.only(top: 16),

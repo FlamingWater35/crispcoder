@@ -41,6 +41,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   String? _sourcePath;
   MediaInfo? _mediaInfo;
   bool _probing = false;
+
+  /// True while the platform file picker is open (between pressing the
+  /// source card and a file being chosen or the picker being dismissed).
+  bool _picking = false;
   String? _error;
 
   String? _selectedPresetId = 'custom';
@@ -332,6 +336,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                                       });
                                     },
                                     probing: _probing,
+                                    isPicking: _picking,
                                     onPick: _pickSource,
                                   ),
                                 ),
@@ -628,8 +633,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   bool get _canSubmit => _sourcePath != null && !_probing;
 
   Future<void> _pickSource() async {
+    // Picking phase: the platform file picker is opening. Show "Opening file
+    // picker…" until a file is chosen (or the picker is dismissed).
     setState(() {
-      _probing = true;
+      _picking = true;
+      _probing = false;
       _error = null;
     });
     try {
@@ -638,7 +646,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       final result = await FilePicker.pickFile(type: FileType.video);
 
       if (result == null) {
-        setState(() => _probing = false);
+        setState(() => _picking = false);
         return;
       }
 
@@ -646,11 +654,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       if (path == null) {
         setState(() {
           _error = 'Could not retrieve file path.';
-          _probing = false;
+          _picking = false;
         });
         return;
       }
 
+      // A file was picked — now read/analyze it.
+      setState(() {
+        _picking = false;
+        _probing = true;
+      });
       final info = await ref.read(mediaProbeServiceProvider).probe(path);
       setState(() {
         _sourcePath = path;
@@ -662,11 +675,13 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     } on AppException catch (e) {
       setState(() {
         _error = e.userMessage;
+        _picking = false;
         _probing = false;
       });
     } catch (e) {
       setState(() {
         _error = 'Could not load source video.';
+        _picking = false;
         _probing = false;
       });
     }
