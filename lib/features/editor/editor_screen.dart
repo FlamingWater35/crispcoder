@@ -773,6 +773,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       preset: preset,
       createdAt: DateTime.now(),
       totalDurationSeconds: _mediaInfo?.duration?.inSeconds.toDouble() ?? 0,
+      // Captured so the hardware-encoder path and GOP calculation can use the
+      // real source rate instead of assuming 30 fps.
+      sourceFrameRate: _mediaInfo?.frameRate,
     );
 
     await ref.read(queueProvider.notifier).enqueue(task);

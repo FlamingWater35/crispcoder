@@ -19,6 +19,12 @@ class EncodeTask {
   final String? errorMessage;
   final double totalDurationSeconds;
 
+  /// Source video framerate in fps (e.g. 23.976, 29.97) captured at enqueue
+  /// time from the probe. Used when no explicit output framerate is set: the
+  /// hardware encoder path and the GOP calculation fall back to this instead
+  /// of assuming 30 fps.
+  final double? sourceFrameRate;
+
   EncodeTask({
     required this.id,
     required this.sourcePath,
@@ -31,6 +37,7 @@ class EncodeTask {
     this.status = EncodeStatus.pending,
     this.errorMessage,
     this.totalDurationSeconds = 0,
+    this.sourceFrameRate,
   });
 
   EncodeTask copyWith({
@@ -45,6 +52,7 @@ class EncodeTask {
     EncodeStatus? status,
     String? errorMessage,
     double? totalDurationSeconds,
+    double? sourceFrameRate,
   }) {
     return EncodeTask(
       id: id ?? this.id,
@@ -58,6 +66,7 @@ class EncodeTask {
       status: status ?? this.status,
       errorMessage: errorMessage ?? this.errorMessage,
       totalDurationSeconds: totalDurationSeconds ?? this.totalDurationSeconds,
+      sourceFrameRate: sourceFrameRate ?? this.sourceFrameRate,
     );
   }
 }
@@ -84,6 +93,11 @@ class EncodeTaskAdapter extends TypeAdapter<EncodeTask> {
       status: EncodeStatus.values[r.readByte()],
       errorMessage: r.readByte() == 1 ? r.readString() : null,
       totalDurationSeconds: r.readDouble(),
+      // Optional field appended at the end; absent in records written by
+      // older app versions, so only read it when bytes remain.
+      sourceFrameRate: r.availableBytes > 0 && r.readByte() == 1
+          ? r.readDouble()
+          : null,
     );
   }
 
@@ -120,6 +134,12 @@ class EncodeTaskAdapter extends TypeAdapter<EncodeTask> {
       w.writeString(t.errorMessage!);
     }
     w.writeDouble(t.totalDurationSeconds);
+    if (t.sourceFrameRate == null) {
+      w.writeByte(0);
+    } else {
+      w.writeByte(1);
+      w.writeDouble(t.sourceFrameRate!);
+    }
   }
 }
 

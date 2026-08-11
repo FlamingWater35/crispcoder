@@ -26,30 +26,45 @@ class QueueRepository {
     _box = await Hive.openBox<EncodeTask>(AppConstants.boxQueue);
 
     // Crash recovery: demote tasks that were running when the app died and
-    // drop their partial output files.
+    // drop their partial output files. Each record is guarded individually —
+    // a corrupt/truncated entry (or a future enum-index shift) must never
+    // take down app startup; unreadable records are dropped.
     final ids = _box.keys.toList();
     for (final id in ids) {
-      final task = _box.get(id);
-      if (task == null || task.status != EncodeStatus.running) continue;
-      await _deletePartialOutput(task.outputPath);
-      // Build the demoted task explicitly: copyWith cannot clear the
-      // timestamps because its nullable params use `?? this.field`.
-      await _box.put(
-        task.id,
-        EncodeTask(
-          id: task.id,
-          sourcePath: task.sourcePath,
-          sourceName: task.sourceName,
-          outputPath: task.outputPath,
-          preset: task.preset,
-          createdAt: task.createdAt,
-          startedAt: null,
-          finishedAt: null,
-          status: EncodeStatus.pending,
-          errorMessage: null,
-          totalDurationSeconds: task.totalDurationSeconds,
-        ),
-      );
+      final EncodeTask? task;
+      try {
+        task = _box.get(id);
+      } catch (_) {
+        await _safeDelete(id);
+        continue;
+      }
+      if (task == null) continue;
+      try {
+        if (task.status != EncodeStatus.running) continue;
+        await _deletePartialOutput(task.outputPath);
+        // Build the demoted task explicitly: copyWith cannot clear the
+        // timestamps because its nullable params use `?? this.field`.
+        await _box.put(
+          task.id,
+          EncodeTask(
+            id: task.id,
+            sourcePath: task.sourcePath,
+            sourceName: task.sourceName,
+            outputPath: task.outputPath,
+            preset: task.preset,
+            createdAt: task.createdAt,
+            startedAt: null,
+            finishedAt: null,
+            status: EncodeStatus.pending,
+            errorMessage: null,
+            totalDurationSeconds: task.totalDurationSeconds,
+          ),
+        );
+      } catch (_) {
+        // A record that fails to deserialize its fields (e.g. an out-of-range
+        // enum index) cannot be recovered — drop it and keep going.
+        await _safeDelete(id);
+      }
     }
 
     _initialized = true;
@@ -60,6 +75,14 @@ class QueueRepository {
   @visibleForTesting
   void resetForTesting() {
     _initialized = false;
+  }
+
+  Future<void> _safeDelete(dynamic id) async {
+    try {
+      await _box.delete(id);
+    } catch (_) {
+      // Best-effort cleanup
+    }
   }
 
   /// Best-effort removal of a partial output file left by a crashed encode.
@@ -74,10 +97,28 @@ class QueueRepository {
     }
   }
 
-  List<EncodeTask> get all =>
-      _box.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  List<EncodeTask> get all {
+    final tasks = <EncodeTask>[];
+    for (final key in _box.keys) {
+      try {
+        final task = _box.get(key);
+        if (task != null) tasks.add(task);
+      } catch (_) {
+        // Skip (and drop) corrupt records so the UI never crashes on them.
+        _safeDelete(key);
+      }
+    }
+    tasks.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return tasks;
+  }
 
-  EncodeTask? byId(String id) => _box.get(id);
+  EncodeTask? byId(String id) {
+    try {
+      return _box.get(id);
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> upsert(EncodeTask task) async {
     await _box.put(task.id, task);
@@ -88,14 +129,21 @@ class QueueRepository {
   }
 
   Future<void> clearCompleted() async {
-    final completed = _box.values
-        .where(
-          (t) =>
-              t.status == EncodeStatus.completed ||
-              t.status == EncodeStatus.cancelled,
-        )
-        .map((t) => t.id)
-        .toList();
+    // Per-key guard, matching `all`: one corrupt record must not abort the
+    // whole clear.
+    final completed = <dynamic>[];
+    for (final key in _box.keys) {
+      try {
+        final task = _box.get(key);
+        if (task != null &&
+            (task.status == EncodeStatus.completed ||
+                task.status == EncodeStatus.cancelled)) {
+          completed.add(key);
+        }
+      } catch (_) {
+        await _safeDelete(key);
+      }
+    }
     for (final id in completed) {
       await _box.delete(id);
     }

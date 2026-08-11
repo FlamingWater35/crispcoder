@@ -230,6 +230,11 @@ class TranscodePreset {
   List<CompatibilityIssue> compatibilityIssues() {
     final issues = <CompatibilityIssue>[];
 
+    // Container/codec rules only apply to video transcodes. Audio and
+    // subtitle extraction ignore the container entirely (extension-only),
+    // so WebM/MP4 rules must not block those.
+    if (outputType != OutputType.video) return issues;
+
     final hasVideoFilters =
         cropWidth != null ||
         cropHeight != null ||

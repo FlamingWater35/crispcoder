@@ -38,7 +38,11 @@ TranscodePreset _preset({
   );
 }
 
-EncodeTask _task({TranscodePreset? preset, double duration = 100}) {
+EncodeTask _task({
+  TranscodePreset? preset,
+  double duration = 100,
+  double? sourceFrameRate,
+}) {
   return EncodeTask(
     id: 'task1',
     sourcePath: '/tmp/input.mp4',
@@ -47,6 +51,7 @@ EncodeTask _task({TranscodePreset? preset, double duration = 100}) {
     preset: preset ?? _preset(),
     createdAt: DateTime(2024, 1, 1),
     totalDurationSeconds: duration,
+    sourceFrameRate: sourceFrameRate,
   );
 }
 
@@ -175,6 +180,34 @@ void main() {
     });
   });
 
+  group('subtitle burn-in', () {
+    test('burn-in adds -sn so the original subtitle stream is not duplicated', () {
+      final preset = _preset(
+        burnSubtitleIndex: 0,
+        framerate: null,
+        resolution: null,
+      );
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args, contains('-vf'));
+      expect(args[args.indexOf('-vf') + 1], contains('subtitles='));
+      expect(args, contains('-sn'));
+    });
+
+    test('no -sn when subtitles are not burned', () {
+      final args = service.buildCommandArgs(
+        task: _task(),
+        preset: _preset(),
+        cap: _cap,
+      );
+      expect(args, isNot(contains('-sn')));
+    });
+  });
+
   group('video copy (passthrough)', () {
     test('copy emits no video filters even when crop/fps/burn configured', () {
       final preset = TranscodePreset(
@@ -267,6 +300,29 @@ void main() {
       expect(args[args.indexOf('-c:v') + 1], 'libsvtav1');
       expect(args, isNot(contains('-hwaccel')));
     });
+
+    test('hw encoder with null framerate derives -r from source fps', () {
+      final preset = _preset(
+        crf: null,
+        videoBitrate: 4000,
+        framerate: null,
+        encoderPref: EncoderPreference.hardware,
+      );
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset, sourceFrameRate: 23.976),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args[args.indexOf('-c:v') + 1], 'h264_mediacodec');
+      expect(args, contains('-r'));
+      expect(args[args.indexOf('-r') + 1], '23.976');
+      expect(args, contains('-fps_mode'));
+      // GOP falls back to the source rate (rounded to an integer), not a
+      // blind 30 fps.
+      expect(args, contains('-g'));
+      expect(args[args.indexOf('-g') + 1], '48');
+    });
   });
 
   group('compatibility flags', () {
@@ -296,16 +352,28 @@ void main() {
   });
 
   group('two-pass', () {
-    test('software h264 two-pass still emits pass options', () {
-      final preset = _preset().copyWith(twoPass: true);
-      final args = service.buildCommandArgs(
-        task: _task(preset: preset),
-        preset: preset,
+    test('software h264 two-pass requires bitrate mode (crf must be null)', () {
+      // CRF mode: two-pass is invalid for x264, so -pass must NOT appear.
+      final crfPreset = _preset().copyWith(twoPass: true);
+      final crfArgs = service.buildCommandArgs(
+        task: _task(preset: crfPreset),
+        preset: crfPreset,
         cap: _cap,
       );
+      expect(crfArgs, isNot(contains('-pass')));
 
+      // Bitrate mode: two-pass is valid.
+      final bitratePreset = _preset(
+        crf: null,
+        videoBitrate: 4000,
+      ).copyWith(twoPass: true);
+      final args = service.buildCommandArgs(
+        task: _task(preset: bitratePreset),
+        preset: bitratePreset,
+        cap: _cap,
+      );
       expect(args, contains('-pass'));
-      expect(args, contains('2'));
+      expect(args[args.indexOf('-pass') + 1], '2');
     });
 
     test('hevc + opus (Max Compression preset) two-pass is downgraded', () {

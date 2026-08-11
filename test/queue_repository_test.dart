@@ -117,4 +117,26 @@ void main() {
     expect(await partial.exists(), isFalse);
     expect(repo.byId('crashed')?.status, EncodeStatus.pending);
   });
+
+  test('corrupt record does not crash bootstrap or all', () async {
+    final repo = QueueRepository.instance;
+    await repo.bootstrap();
+
+    // Seed one good record, then corrupt the box file on disk directly
+    // (a truncated/corrupt record is a disk-level condition Hive can't
+    // express through its typed API). Closing the box first releases the
+    // file lock so the corruption is picked up on the next open.
+    await repo.upsert(task(id: 'good'));
+    final box = Hive.box<EncodeTask>(AppConstants.boxQueue);
+    await box.close();
+    final hiveFile = File(p.join(tempDir.path, '${AppConstants.boxQueue}.hive'));
+    await hiveFile.writeAsString('garbage not a hive file');
+
+    repo.resetForTesting();
+    // Must not throw.
+    await repo.bootstrap();
+
+    final all = repo.all;
+    expect(all, isEmpty); // corrupt file → nothing recoverable, no crash
+  });
 }

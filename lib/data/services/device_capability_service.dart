@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/device_capability.dart';
@@ -25,14 +26,26 @@ class DeviceCapabilityService {
 
   /// Queries the FFmpeg build for the names of MediaCodec encoders it
   /// actually ships with (e.g. `h264_mediacodec`).
-  Future<Set<String>> detectAvailableMediacodecEncoders() async {
+  ///
+  /// Returns a [DetectionResult]: `encoders` is the parsed set, and
+  /// `succeeded` is false only when the query itself failed (exception or
+  /// non-success return code). An empty-but-valid result means the build has
+  /// no MediaCodec encoders — that must not be treated as a detection failure.
+  Future<DetectionResult> detectAvailableMediacodecEncoders() async {
     try {
       final session = await FFmpegKit.execute('-hide_banner -encoders');
+      final rc = await session.getReturnCode();
+      if (rc != null && !ReturnCode.isSuccess(rc)) {
+        return const DetectionResult(encoders: {}, succeeded: false);
+      }
       final logs = await session.getAllLogsAsString(5000);
-      return parseMediacodecEncoders(logs ?? '');
+      return DetectionResult(
+        encoders: parseMediacodecEncoders(logs ?? ''),
+        succeeded: true,
+      );
     } catch (_) {
       // Detection is best-effort; caller falls back to heuristics.
-      return const {};
+      return const DetectionResult(encoders: {}, succeeded: false);
     }
   }
 
@@ -60,9 +73,12 @@ class DeviceCapabilityService {
     final heuristicAv1 = sdkInt >= 34;
 
     // Runtime verification: only claim support for encoders the FFmpeg build
-    // actually contains. If detection fails, fall back to heuristics.
-    final available = await detectAvailableMediacodecEncoders();
-    final hasRealCheck = available.isNotEmpty;
+    // actually contains. Heuristics are used ONLY when the query itself
+    // failed — a valid empty result means "no MediaCodec encoders at all",
+    // and claiming HW support then would produce broken encodes.
+    final result = await detectAvailableMediacodecEncoders();
+    final available = result.encoders;
+    final hasRealCheck = result.succeeded;
 
     return DeviceCapability(
       manufacturer: manufacturer,
@@ -81,6 +97,14 @@ class DeviceCapabilityService {
       recommendedThreadCount: Platform.numberOfProcessors,
     );
   }
+}
+
+/// Result of a runtime encoder query: the parsed encoder set plus whether
+/// the query itself succeeded (vs. threw or returned a non-success code).
+class DetectionResult {
+  final Set<String> encoders;
+  final bool succeeded;
+  const DetectionResult({required this.encoders, required this.succeeded});
 }
 
 final deviceCapabilityServiceProvider = Provider<DeviceCapabilityService>(

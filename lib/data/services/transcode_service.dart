@@ -142,8 +142,8 @@ class TranscodeService {
   }
 
   /// Resolution/framerate-aware default bitrate (kbps) for hardware encoders.
-  int _defaultVideoBitrateKbps(TranscodePreset preset) {
-    final fps = preset.framerate ?? 30;
+  int _defaultVideoBitrateKbps(TranscodePreset preset, double? effectiveFps) {
+    final fps = effectiveFps ?? preset.framerate ?? 30;
     final base = switch (preset.resolution ?? 1080) {
       2160 => 20000,
       1440 => 12000,
@@ -164,20 +164,25 @@ class TranscodeService {
 
   /// Resolves the effective video bitrate in kbps. [TranscodePreset.videoBitrate]
   /// is already kbps; otherwise falls back to CRF- or resolution-based guesses.
-  int _resolveVideoBitrateKbps(TranscodePreset preset) {
+  int _resolveVideoBitrateKbps(
+    TranscodePreset preset,
+    double? effectiveFps,
+  ) {
     if (preset.videoBitrate != null) return preset.videoBitrate!;
     final fromCrf = _crfToBitrateKbps(preset.crf);
     if (fromCrf != null) return fromCrf;
-    return _defaultVideoBitrateKbps(preset);
+    return _defaultVideoBitrateKbps(preset, effectiveFps);
   }
 
   /// Whether generic FFmpeg two-pass (`-pass 1/2`) is reliable for this
-  /// preset. Only software H.264 (libx264) is supported — libx265, SVT-AV1,
-  /// and VP9 need encoder-specific pass handling, so their two-pass is
-  /// silently downgraded to single pass.
+  /// preset. Only software H.264 (libx264) with an explicit bitrate target
+  /// is supported — CRF is single-pass by design, and libx265/SVT-AV1/VP9
+  /// need encoder-specific pass handling. Anything else is silently
+  /// downgraded to single pass.
   bool _supportsTwoPass(TranscodePreset preset, DeviceCapability cap) {
     if (!preset.twoPass) return false;
     if (preset.videoCodec != VideoCodec.h264) return false;
+    if (preset.crf != null) return false; // CRF is inherently single-pass
     final vEnc = _resolveVideoEncoder(preset, cap);
     return vEnc != 'copy' && !vEnc.endsWith('_mediacodec');
   }
@@ -272,6 +277,12 @@ class TranscodeService {
 
     final vEnc = _resolveVideoEncoder(preset, cap);
     final isHw = vEnc.endsWith('_mediacodec');
+
+    // Effective output framerate: explicit preset wins; otherwise fall back
+    // to the probed source rate so hardware encoders and the GOP interval
+    // don't assume a wrong 30 fps on 23.976/29.97/VFR sources.
+    final double? effectiveFps =
+        preset.framerate?.toDouble() ?? task.sourceFrameRate;
 
     // --- Filter chain (never for video copy / passthrough) ---
     // Order: subtitles → crop → scale → fps → custom
@@ -368,7 +379,7 @@ class TranscodeService {
     if (vEnc != 'copy') {
       if (isHw) {
         // HW mediacodec requires explicit bitrate; CRF is not supported
-        final bitrateKbps = _resolveVideoBitrateKbps(preset);
+        final bitrateKbps = _resolveVideoBitrateKbps(preset, effectiveFps);
         args.addAll(['-b:v', '${bitrateKbps}k']);
       } else {
         args.addAll(['-threads', '${cap.recommendedThreadCount}']);
@@ -387,16 +398,18 @@ class TranscodeService {
           args.addAll(['-b:v', '${preset.videoBitrate}k']);
         }
 
-        // Set GOP (keyframe interval) to 2x framerate for seek-friendly
-        // output. Critical for MKV containers to have proper seek indices.
-        final fps = preset.framerate ?? 30;
-        args.addAll(['-g', '${fps * 2}']);
-
         // Broad compatibility: force 4:2:0 8-bit so players without
         // 10-bit decode support can play the output. Skipped for MediaCodec
         // encoders which manage their own surface format.
         args.addAll(['-pix_fmt', 'yuv420p']);
       }
+
+      // Set GOP (keyframe interval) to 2x framerate for seek-friendly
+      // output. Critical for MKV containers to have proper seek indices.
+      // Uses the effective (explicit or source) framerate, never a blind
+      // 30 fps assumption. -g is an integer codec option, so round.
+      final fps = effectiveFps ?? 30;
+      args.addAll(['-g', '${(fps * 2).round()}']);
 
       // Two-pass encoding (software H.264/HEVC only)
       if (_supportsTwoPass(preset, cap)) {
@@ -424,11 +437,23 @@ class TranscodeService {
         }
       }
 
+      // Subtitles are burned into the video frames, so don't also mux the
+      // original subtitle stream — default stream selection would duplicate
+      // it into mkv/mp4 outputs.
+      if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
+        args.addAll(['-sn']);
+      }
+
       // Only force constant frame rate when the user explicitly chose one.
       // `-fps_mode cfr` (modern alias of `-vsync cfr`) sets container
       // metadata; the fps filter already resampled the frames.
       if (vEnc != 'copy' && preset.framerate != null) {
         args.addAll(['-r', '${preset.framerate}', '-fps_mode', 'cfr']);
+      } else if (isHw && effectiveFps != null) {
+        // MediaCodec surface pipelines need an explicit CFR target even when
+        // preserving the source rate — without -r, a VFR/23.976 source can
+        // produce wrong-rate output. Derive it from the probed source fps.
+        args.addAll(['-r', '$effectiveFps', '-fps_mode', 'cfr']);
       }
 
       if (preset.faststart && preset.container == ContainerFormat.mp4) {
@@ -463,6 +488,7 @@ class TranscodeService {
     if (_active != null) {
       throw StateError('An encode is already running');
     }
+    _cancelRequested = false;
 
     final log = _ref.read(loggerProvider);
     final probe = _ref.read(mediaProbeServiceProvider);
@@ -554,7 +580,20 @@ class TranscodeService {
     if (usesTwoPass) {
       completion = () async {
         await initialCompleter;
+        // cancel() is a no-op for a completed session, so without this gate
+        // pass 2 would run to completion even though the user cancelled.
+        if (_cancelRequested) {
+          throw EncodeCancelledException();
+        }
         final (s2, c2) = await runPass(false);
+        // Re-check after launch: cancel() may have run while pass 2 was
+        // starting (the gate above and the _active reassignment are not
+        // atomic). In that case abort the just-started pass 2 instead of
+        // resurrecting _active and letting it run to completion.
+        if (_cancelRequested) {
+          await FFmpegKit.cancel(s2.getSessionId());
+          throw EncodeCancelledException();
+        }
         _active = ActiveSession(
           taskId: task.id,
           session: s2,
@@ -587,8 +626,11 @@ class TranscodeService {
     return _active!;
   }
 
-  /// Cancels the active FFmpeg session by session ID.
+  /// Cancels the active FFmpeg session by session ID. Also sets the
+  /// two-pass boundary flag so a cancel during the pass1→pass2 gap prevents
+  /// pass 2 from starting.
   Future<void> cancel() async {
+    _cancelRequested = true;
     final a = _active;
     _active = null;
     if (a == null) return;
@@ -596,6 +638,11 @@ class TranscodeService {
       await FFmpegKit.cancel(a.session.getSessionId());
     } catch (_) {}
   }
+
+  /// Set when the user cancels; reset at the start of each session. Used to
+  /// abort a two-pass encode between passes, where the completed pass-1
+  /// session is no longer cancellable.
+  bool _cancelRequested = false;
 
   void dispose() {
     _progressController.close();

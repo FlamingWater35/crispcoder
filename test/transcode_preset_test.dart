@@ -193,5 +193,26 @@ void main() {
         isEmpty,
       );
     });
+
+    test('container rules are skipped for audio/subtitle extraction', () {
+      // An invalid video combo (webm+h264) is fine for audio extraction,
+      // where the container is ignored (extension-only output).
+      expect(
+        _base(
+          container: ContainerFormat.webm,
+          videoCodec: VideoCodec.h264,
+          audioCodec: AudioCodec.aac,
+        ).copyWith(outputType: OutputType.audio).compatibilityIssues(),
+        isEmpty,
+      );
+      expect(
+        _base(
+          container: ContainerFormat.webm,
+          videoCodec: VideoCodec.h264,
+          audioCodec: AudioCodec.aac,
+        ).copyWith(outputType: OutputType.subtitle).compatibilityIssues(),
+        isEmpty,
+      );
+    });
   });
 }

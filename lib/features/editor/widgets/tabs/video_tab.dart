@@ -66,6 +66,18 @@ class VideoTab extends ConsumerWidget {
 
   bool get _isVideoCopy => videoCodec == VideoCodec.copy;
 
+  /// Validates the kbps bitrate input. Empty is rejected (the encode would
+  /// otherwise silently fall back to 4 Mbps with no feedback); a non-numeric
+  /// value is rejected rather than silently coerced.
+  String? _validateBitrate(String? value) {
+    final v = value?.trim() ?? '';
+    if (v.isEmpty) return 'Enter a bitrate';
+    final parsed = int.tryParse(v);
+    if (parsed == null) return 'Must be a number';
+    if (parsed <= 0) return 'Must be positive';
+    return null;
+  }
+
   /// Uses detectedResolution (smallest standard 16:9 box that fits the source)
   /// instead of raw height. A 1920x800 source returns 1080, not 800.
   int? get _originalRes => mediaInfo.detectedResolution;
@@ -194,6 +206,7 @@ class VideoTab extends ConsumerWidget {
                     ),
                     initialValue: videoBitrate.toString(),
                     keyboardType: TextInputType.number,
+                    validator: _validateBitrate,
                     onChanged: onVideoBitrateChanged,
                   ),
                 ] else ...[
@@ -255,6 +268,7 @@ class VideoTab extends ConsumerWidget {
                       ),
                       initialValue: videoBitrate.toString(),
                       keyboardType: TextInputType.number,
+                      validator: _validateBitrate,
                       onChanged: onVideoBitrateChanged,
                     ),
                   ],
