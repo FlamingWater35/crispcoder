@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -62,9 +64,7 @@ class _QueueTileState extends ConsumerState<QueueTile> {
               child: TextButton.icon(
                 icon: const Icon(Icons.share_outlined, size: 18),
                 label: const Text('Share'),
-                onPressed: () => ref
-                    .read(galleryServiceProvider)
-                    .share(task.outputPath, subject: task.sourceName),
+                onPressed: () => _shareOutput(context, task),
               ),
             ),
           ],
@@ -72,6 +72,28 @@ class _QueueTileState extends ConsumerState<QueueTile> {
         ],
       ),
     );
+  }
+
+  /// Shares the completed output file. If the file no longer exists (e.g.
+  /// the cache was cleared before this app version protected it), surface a
+  /// clear message instead of silently doing nothing.
+  Future<void> _shareOutput(BuildContext context, EncodeTask task) async {
+    final file = File(task.outputPath);
+    if (!await file.exists()) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Output file no longer exists:\n${task.outputPath}',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    await ref
+        .read(galleryServiceProvider)
+        .share(task.outputPath, subject: task.sourceName);
   }
 
   @override

@@ -27,12 +27,21 @@ class PathHelpers {
   /// Clears the app's temporary cache directory to prevent storage bloat
   /// from leftover FFmpeg logs, intermediate video files, and two-pass
   /// encoding assets. Safe to call on startup; OS will recreate files as needed.
-  static Future<void> clearAppCache() async {
+  ///
+  /// [protect] lists absolute file paths that must survive the cleanup (e.g.
+  /// completed encode outputs that are still referenced by the queue/history
+  /// and sharable after an app relaunch). Protected entries are checked
+  /// against the path being deleted (which may be a directory containing the
+  /// file, so the match is prefix-based on the protected file's parent).
+  static Future<void> clearAppCache({Set<String> protect = const {}}) async {
     try {
       final base = await getTemporaryDirectory();
       if (base.existsSync()) {
-        // Delete contents recursively, but keep the base directory itself
+        // Delete contents recursively, but keep the base directory itself.
+        // A protected file can live inside a subdirectory (e.g. file_picker
+        // cache), so skip any directory that contains one.
         for (final entity in base.listSync()) {
+          if (_containsProtected(entity, protect)) continue;
           try {
             await entity.delete(recursive: true);
           } catch (_) {
@@ -43,6 +52,23 @@ class PathHelpers {
     } catch (_) {
       // Best-effort cleanup
     }
+  }
+
+  /// True if [entity] is a protected file, or a directory that contains one
+  /// (directly or nested).
+  static bool _containsProtected(
+    FileSystemEntity entity,
+    Set<String> protect,
+  ) {
+    for (final protectedPath in protect) {
+      if (entity.path == protectedPath) return true;
+      if (entity is Directory &&
+          entity.path.length < protectedPath.length &&
+          protectedPath.startsWith(entity.path)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Builds a non-colliding output filename by appending (1), (2), etc.

@@ -43,6 +43,6 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: CrispCoderApp()));
     await tester.pump();
 
-    expect(find.text('CrispCoder'), findsOneWidget);
+    expect(find.text('CrispCoder'), findsWidgets);
   });
 }

@@ -59,12 +59,27 @@ Future<void> main() async {
       await settingsBox.put(AppConstants.keySchemaVersion, 6);
     }
 
-    await PathHelpers.clearAppCache();
-
+    // Bootstrap persistence first so we know which completed outputs must
+    // survive the cache cleanup below (otherwise relaunch would delete the
+    // files behind "Share" in the queue/history).
     await PresetRepository.instance.bootstrap();
     await QueueRepository.instance.bootstrap();
     await HistoryRepository.instance.bootstrap();
     await AppSettingsRepository.instance.bootstrap();
+
+    // Protect completed/cancelled task outputs that live in the temp cache
+    // (e.g. picked via file_picker) — they are still referenced by the queue
+    // and must remain sharable after relaunch.
+    final protectPaths = <String>{
+      ...QueueRepository.instance.all
+          .where((t) =>
+              t.status == EncodeStatus.completed ||
+              t.status == EncodeStatus.cancelled)
+          .map((t) => t.outputPath),
+      ...HistoryRepository.instance.all.map((t) => t.outputPath),
+    };
+    await PathHelpers.clearAppCache(protect: protectPaths);
+
     await ForegroundServiceWrapper.instance.init();
     await NotificationService.instance.init();
 

@@ -64,9 +64,14 @@ class LogsScreen extends StatefulWidget {
 
   /// Clears the log buffer.
   static void clear() {
+    _debounceTimer?.cancel();
     _buffer.clear();
     _notifier.value = 0;
   }
+
+  /// Test hook: number of buffered entries.
+  @visibleForTesting
+  static int get bufferLength => _buffer.length;
 
   @override
   State<LogsScreen> createState() => _LogsScreenState();
@@ -76,7 +81,11 @@ class _LogsScreenState extends State<LogsScreen> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
 
-  bool _showFab = false;
+  /// Drives the jump-to-bottom FAB. Updated on scroll WITHOUT rebuilding the
+  /// whole screen — rebuilding on every threshold crossing while the user is
+  /// dragging the interactive scrollbar caused jank/thumb snapping.
+  final ValueNotifier<bool> _showFabNotifier = ValueNotifier<bool>(false);
+
   String _searchQuery = '';
 
   @override
@@ -90,18 +99,19 @@ class _LogsScreenState extends State<LogsScreen> {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
+    _showFabNotifier.dispose();
     super.dispose();
   }
 
   /// Shows/hides the jump-to-bottom FAB based on scroll position.
   void _onScroll() {
+    // Guard against detached positions (e.g. list swaps during search) so
+    // listeners never throw while the scrollbar is being dragged.
+    if (!_scrollController.hasClients) return;
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
     final shouldShow = maxScroll - currentScroll > 250;
-
-    if (shouldShow != _showFab) {
-      setState(() => _showFab = shouldShow);
-    }
+    _showFabNotifier.value = shouldShow;
   }
 
   /// Smoothly scrolls to the latest log entry.
@@ -183,6 +193,10 @@ class _LogsScreenState extends State<LogsScreen> {
                     interactive: true, // Makes the scrollbar draggable
                     thickness: 10,
                     radius: Radius.circular(6),
+                    // Only animate the scrollbar when the log list itself is
+                    // scrolling, not when the SearchBar/AppBar rebuild.
+                    notificationPredicate: (notification) =>
+                        notification.depth == 0,
                     child: ListView.builder(
                       controller: _scrollController,
                       itemCount: filteredLogs.length,
@@ -198,14 +212,17 @@ class _LogsScreenState extends State<LogsScreen> {
           ],
         ),
       ),
-      floatingActionButton: _showFab
-          ? FloatingActionButton(
-              tooltip: 'Jump to bottom',
-              mini: true,
-              onPressed: _scrollToBottom,
-              child: const Icon(Icons.arrow_downward_rounded),
-            )
-          : null,
+      floatingActionButton: ValueListenableBuilder<bool>(
+        valueListenable: _showFabNotifier,
+        builder: (context, showFab, _) => showFab
+            ? FloatingActionButton(
+                tooltip: 'Jump to bottom',
+                mini: true,
+                onPressed: _scrollToBottom,
+                child: const Icon(Icons.arrow_downward_rounded),
+              )
+            : const SizedBox.shrink(),
+      ),
     );
   }
 }
