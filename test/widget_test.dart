@@ -41,7 +41,10 @@ void main() {
 
   testWidgets('App boots without crashing', (WidgetTester tester) async {
     await tester.pumpWidget(const ProviderScope(child: CrispCoderApp()));
+    // Settle entrance animations (flutter_animate zero-delay timers) so no
+    // timers are left pending when the test tears down.
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
 
     expect(find.text('CrispCoder'), findsWidgets);
   });

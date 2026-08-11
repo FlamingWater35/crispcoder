@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/utils/format_parsers.dart';
+import '../../../core/utils/responsive.dart';
 import '../../../data/models/encode_task.dart';
 import '../../../data/services/gallery_service.dart';
 import '../../../providers/active_encode_provider.dart';
@@ -116,10 +117,15 @@ class _QueueTileState extends ConsumerState<QueueTile> {
     // Only allow expansion if the task completed successfully
     final canExpand = task.status == EncodeStatus.completed;
 
+    // Wider gutters on large screens keep tiles aligned with the centered
+    // column while phones keep the compact 12px margin.
+    final width = MediaQuery.sizeOf(context).width;
+    final hMargin = width >= Breakpoints.medium ? 32.0 : 12.0;
+
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      margin: EdgeInsets.symmetric(horizontal: hMargin, vertical: 5),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         onTap: canExpand
             ? () => setState(() => _isExpanded = !_isExpanded)
             : null,
@@ -167,12 +173,27 @@ class _QueueTileState extends ConsumerState<QueueTile> {
               ),
               if (progress != null) ...[
                 const SizedBox(height: 8),
-                LinearProgressIndicator(value: progress.percent / 100),
-                const SizedBox(height: 6),
+                // The determinate indicator animates value changes natively
+                // (no re-tween from zero on every progress tick).
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress.percent / 100,
+                    minHeight: 6,
+                    borderRadius: BorderRadius.circular(4),
+                    color: theme.colorScheme.primary,
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 12,
+                  runSpacing: 4,
                   children: [
-                    _Meta(label: progress.formattedPercent),
+                    _Meta(
+                      label: progress.formattedPercent,
+                      emphasized: true,
+                    ),
                     _Meta(label: progress.formattedFps),
                     _Meta(label: progress.formattedSpeed),
                     _Meta(label: 'ETA ${progress.formattedEta}'),
@@ -225,29 +246,40 @@ class _StatusIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final (icon, color) = switch (status) {
-      EncodeStatus.pending => (Icons.schedule_outlined, Colors.grey),
-      EncodeStatus.running => (Icons.autorenew, Colors.blue),
-      EncodeStatus.paused => (Icons.pause_circle_outline, Colors.orange),
-      EncodeStatus.completed => (Icons.check_circle, Colors.green),
-      EncodeStatus.failed => (Icons.error_outline, Colors.red),
-      EncodeStatus.cancelled => (Icons.cancel_outlined, Colors.grey),
+      EncodeStatus.pending => (Icons.schedule_rounded, scheme.onSurfaceVariant),
+      EncodeStatus.running => (Icons.autorenew_rounded, scheme.primary),
+      EncodeStatus.paused => (
+        Icons.pause_circle_outline_rounded,
+        scheme.tertiary,
+      ),
+      EncodeStatus.completed => (Icons.check_circle_rounded, scheme.tertiary),
+      EncodeStatus.failed => (Icons.error_outline_rounded, scheme.error),
+      EncodeStatus.cancelled => (
+        Icons.cancel_outlined,
+        scheme.onSurfaceVariant,
+      ),
     };
     return Icon(icon, color: color);
   }
 }
 
 class _Meta extends StatelessWidget {
-  const _Meta({required this.label});
+  const _Meta({required this.label, this.emphasized = false});
 
   final String label;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Text(
       label,
-      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+      style: theme.textTheme.labelSmall?.copyWith(
         fontFeatures: const [FontFeature.tabularFigures()],
+        fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
+        color: emphasized ? theme.colorScheme.primary : null,
       ),
     );
   }

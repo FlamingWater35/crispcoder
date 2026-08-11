@@ -5,6 +5,7 @@ import 'package:crispcoder/data/models/encode_task.dart';
 import 'package:crispcoder/data/models/transcode_preset.dart';
 import 'package:crispcoder/data/repositories/queue_repository.dart';
 import 'package:crispcoder/features/home/home_screen.dart';
+import 'package:crispcoder/features/home/widgets/status_summary.dart';
 import 'package:crispcoder/providers/active_encode_provider.dart';
 import 'package:crispcoder/providers/queue_provider.dart';
 import 'package:flutter/material.dart';
@@ -110,7 +111,10 @@ void main() {
         child: const MaterialApp(home: HomeScreen()),
       ),
     );
+    // Settle entrance animations (staggered fade+slide) and let the
+    // flutter_animate zero-delay timers fire before assertions.
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
   }
 
   testWidgets('empty queue shows stats and a New Encode CTA',
@@ -141,9 +145,15 @@ void main() {
 
     await pumpHome(tester);
 
-    // Stats reflect the queue: 1 queued, 1 completed
-    expect(find.text('1'), findsNWidgets(2));
-    expect(find.text('0'), findsWidgets); // running
+    // Stats reflect the queue: 1 queued, 1 completed (scoped to the status
+    // chips — the section-header count badges render extra "1" digits).
+    expect(
+      find.descendant(
+        of: find.byType(StatusSummary),
+        matching: find.text('1'),
+      ),
+      findsNWidgets(2),
+    );
     // Single pending task → header is the singular form
     expect(find.text('In queue'), findsOneWidget);
 

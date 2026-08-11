@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/theme/app_theme.dart';
 import 'features/home/home_screen.dart';
 import 'features/logs/logs_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -17,16 +18,8 @@ class CrispCoderApp extends ConsumerWidget {
     return MaterialApp(
       title: 'CrispCoder',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF2196F3),
-        brightness: Brightness.light,
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF2196F3),
-        brightness: Brightness.dark,
-      ),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
       themeMode: settings.themeMode,
       home: const _RootShell(),
     );
@@ -45,24 +38,44 @@ class _RootShellState extends State<_RootShell> {
   int _index = 0;
 
   static const _destinations = [
-    (icon: Icons.queue, label: 'Queue', screen: HomeScreen()),
-    (icon: Icons.receipt_long, label: 'Logs', screen: LogsScreen()),
-    (icon: Icons.settings, label: 'Settings', screen: SettingsScreen()),
+    (icon: Icons.queue_rounded, label: 'Queue', screen: HomeScreen()),
+    (icon: Icons.receipt_long_rounded, label: 'Logs', screen: LogsScreen()),
+    (icon: Icons.settings_rounded, label: 'Settings', screen: SettingsScreen()),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: _destinations.map((d) => d.screen).toList(),
+      // Soft tonal wash behind the content so cards "float" on the surface.
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              scheme.primaryContainer.withValues(alpha: 0.14),
+              scheme.surface,
+              scheme.surface,
+            ],
+            stops: const [0.0, 0.28, 1.0],
+          ),
+        ),
+        child: IndexedStack(
+          index: _index,
+          children: _destinations.map((d) => d.screen).toList(),
+        ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
           for (final d in _destinations)
-            NavigationDestination(icon: Icon(d.icon), label: d.label),
+            NavigationDestination(
+              icon: Icon(d.icon),
+              selectedIcon: Icon(d.icon, fill: 1),
+              label: d.label,
+            ),
         ],
       ),
     );

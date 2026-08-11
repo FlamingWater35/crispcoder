@@ -27,22 +27,51 @@ class ActiveEncodeCard extends ConsumerWidget {
         .where((t) => t.status == EncodeStatus.pending)
         .firstOrNull;
 
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Card(
-        elevation: 2,
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: running != null
+                ? [
+                    scheme.primaryContainer.withValues(alpha: 0.9),
+                    scheme.surfaceContainerHigh,
+                    scheme.surfaceContainerHigh,
+                  ]
+                : [
+                    scheme.surfaceContainerHigh,
+                    scheme.surfaceContainerLow,
+                  ],
+          ),
+          border: Border.all(
+            color: running != null
+                ? scheme.primary.withValues(alpha: 0.35)
+                : scheme.outlineVariant.withValues(alpha: 0.5),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: scheme.shadow.withValues(alpha: 0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: running != null
-            ? _RunningSpotlight(
-                task: running,
-                progress: activeProgress,
-                onCancel: () =>
-                    ref.read(queueProvider.notifier).cancelActive(),
-              )
-            : _IdleState(task: nextPending),
+              ? _RunningSpotlight(
+                  task: running,
+                  progress: activeProgress,
+                  onCancel: () =>
+                      ref.read(queueProvider.notifier).cancelActive(),
+                )
+              : _IdleState(task: nextPending),
         ),
       ),
     );
@@ -72,16 +101,29 @@ class _RunningSpotlight extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(
-              child: Text(
-                'Encoding',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: scheme.primary,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
-                ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.bolt_rounded, size: 14, color: scheme.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Encoding',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: scheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ],
               ),
             ),
+            const Spacer(),
             if (!isStarting)
               TextButton.icon(
                 onPressed: onCancel,
@@ -90,7 +132,7 @@ class _RunningSpotlight extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 12),
         Row(
           children: [
             _ProgressRing(percent: progress?.percent),
@@ -101,7 +143,9 @@ class _RunningSpotlight extends StatelessWidget {
                 children: [
                   Text(
                     task.sourceName ?? task.sourcePath.split('/').last,
-                    style: theme.textTheme.titleMedium,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -154,10 +198,13 @@ class _IdleState extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
+              color: scheme.secondaryContainer,
               shape: BoxShape.circle,
             ),
-            child: Icon(Icons.schedule_outlined, color: scheme.onSurfaceVariant),
+            child: Icon(
+              Icons.schedule_rounded,
+              color: scheme.onSecondaryContainer,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -168,13 +215,16 @@ class _IdleState extends StatelessWidget {
                   'Up next',
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   task!.sourceName ?? task!.sourcePath.split('/').last,
-                  style: theme.textTheme.titleSmall,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -184,10 +234,10 @@ class _IdleState extends StatelessWidget {
           Chip(
             label: const Text('Queued'),
             labelStyle: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
+              color: scheme.onSecondaryContainer,
             ),
             visualDensity: VisualDensity.compact,
-            backgroundColor: scheme.surfaceContainerHighest,
+            backgroundColor: scheme.secondaryContainer,
             side: BorderSide.none,
           ),
         ],
@@ -203,14 +253,18 @@ class _IdleState extends StatelessWidget {
             color: scheme.surfaceContainerHighest,
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.movie_creation_outlined,
-              color: scheme.onSurfaceVariant),
+          child: Icon(
+            Icons.movie_creation_outlined,
+            color: scheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: Text(
             'Nothing encoding right now',
-            style: theme.textTheme.titleSmall,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
           ),
         ),
       ],
@@ -219,36 +273,96 @@ class _IdleState extends StatelessWidget {
 }
 
 /// Circular progress ring with the current percentage centered.
-class _ProgressRing extends StatelessWidget {
+///
+/// The ring animates from its previous value to the new one on each progress
+/// tick (via a [Tween] from the last target), so it fills smoothly instead of
+/// restarting from zero on every rebuild.
+class _ProgressRing extends StatefulWidget {
   const _ProgressRing({required this.percent});
 
   final double? percent;
 
   @override
+  State<_ProgressRing> createState() => _ProgressRingState();
+}
+
+class _ProgressRingState extends State<_ProgressRing>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _animation;
+
+  /// Value the ring currently displays; the begin of the next tween.
+  double _displayed = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _displayed = _targetOf(widget.percent) ?? 0;
+    _animation = _buildAnimation(_displayed, _displayed);
+  }
+
+  @override
+  void didUpdateWidget(_ProgressRing oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final newTarget = _targetOf(widget.percent);
+    if (newTarget == null) return; // indeterminate — keep current value
+    if ((newTarget - _displayed).abs() < 0.0001) return;
+    final begin = _animation.isAnimating ? _animation.value : _displayed;
+    _animation = _buildAnimation(begin, newTarget);
+    _displayed = newTarget;
+    _controller.forward(from: 0);
+  }
+
+  static double? _targetOf(double? percent) =>
+      percent == null ? null : percent / 100;
+
+  Animation<double> _buildAnimation(double begin, double end) {
+    return CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    ).drive(Tween(begin: begin, end: end));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final value = percent == null ? null : percent! / 100;
+    final value = widget.percent == null ? null : widget.percent! / 100;
 
     return SizedBox(
-      width: 72,
-      height: 72,
+      width: 76,
+      height: 76,
       child: Stack(
         alignment: Alignment.center,
         children: [
           SizedBox(
-            width: 72,
-            height: 72,
-            child: CircularProgressIndicator(
-              value: value,
-              strokeWidth: 7,
-              backgroundColor: scheme.surfaceContainerHighest,
-              color: scheme.primary,
+            width: 76,
+            height: 76,
+            child: AnimatedBuilder(
+              animation: _animation,
+              builder: (context, _) => CircularProgressIndicator(
+                value: value == null ? null : _animation.value,
+                strokeWidth: 7,
+                strokeCap: StrokeCap.round,
+                backgroundColor: scheme.surfaceContainerHighest,
+                color: scheme.primary,
+              ),
             ),
           ),
           Text(
-            value == null ? '—' : '${percent!.toStringAsFixed(0)}%',
+            value == null ? '—' : '${widget.percent!.toStringAsFixed(0)}%',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],

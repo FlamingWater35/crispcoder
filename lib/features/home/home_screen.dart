@@ -1,18 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/responsive.dart';
 import '../../data/models/encode_task.dart';
 import '../../providers/queue_provider.dart';
 import '../editor/editor_screen.dart';
 import 'widgets/active_encode_card.dart';
 import 'widgets/empty_queue_state.dart';
 import 'widgets/queue_tile.dart';
+import 'widgets/section_header.dart';
 import 'widgets/status_summary.dart';
 
 /// Main queue screen: status summary, active-encode spotlight, pending queue,
 /// completed tasks, and the "New Encode" action.
-class HomeScreen extends ConsumerWidget {
+///
+/// Animations: cards enter with a staggered slide+fade as they are added to
+/// their sections, and sections collapse/expand with an animated size + header
+/// chevron. Layout adapts to wide screens by constraining content to a
+/// comfortable column width.
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  bool _queueExpanded = true;
+  bool _completedExpanded = true;
 
   Future<void> _openEditor(BuildContext context) async {
     await Navigator.of(
@@ -21,7 +37,7 @@ class HomeScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final queue = ref.watch(queueProvider);
     final hasFinished = queue.any(
       (t) =>
@@ -74,8 +90,11 @@ class HomeScreen extends ConsumerWidget {
         ],
       ),
       body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
+        child: centeredContent(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
           child: queue.isEmpty
               ? ListView(
                   key: const ValueKey('empty'),
@@ -103,62 +122,174 @@ class HomeScreen extends ConsumerWidget {
                     ),
                     const ActiveEncodeCard(),
                     if (pending.isNotEmpty) ...[
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                        child: Text(
-                          pending.length == 1
-                              ? 'In queue'
-                              : 'In queue (${pending.length})',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
+                      SectionHeader(
+                        title: 'In queue',
+                        count: pending.length,
+                        icon: Icons.schedule_rounded,
+                        isExpanded: _queueExpanded,
+                        onToggle: () => setState(
+                          () => _queueExpanded = !_queueExpanded,
                         ),
                       ),
-                      for (final task in pending)
-                        QueueTile(
-                          key: ValueKey(task.id),
-                          task: task,
-                          onCancel: task.status == EncodeStatus.running
-                              ? () => ref
-                                    .read(queueProvider.notifier)
-                                    .cancelActive()
-                              : null,
-                          onRemove: task.status != EncodeStatus.running
-                              ? () => ref
-                                    .read(queueProvider.notifier)
-                                    .remove(task.id)
-                              : null,
-                        ),
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment.topCenter,
+                        child: _queueExpanded
+                            ? Column(
+                                children: [
+                                  for (var i = 0; i < pending.length; i++)
+                                    QueueTile(
+                                      key: ValueKey(pending[i].id),
+                                      task: pending[i],
+                                      onCancel:
+                                          pending[i].status ==
+                                              EncodeStatus.running
+                                          ? () => ref
+                                                .read(
+                                                  queueProvider.notifier,
+                                                )
+                                                .cancelActive()
+                                          : null,
+                                      onRemove:
+                                          pending[i].status !=
+                                              EncodeStatus.running
+                                          ? () => ref
+                                                .read(
+                                                  queueProvider.notifier,
+                                                )
+                                                .remove(pending[i].id)
+                                          : null,
+                                    ).animate(
+                                      key: ValueKey(
+                                        'queue-${pending[i].id}',
+                                      ),
+                                    ).fadeIn(
+                                      delay: (i * 70).ms,
+                                      duration: 320.ms,
+                                      curve: Curves.easeOut,
+                                    ).slideY(
+                                      begin: 0.12,
+                                      end: 0,
+                                      delay: (i * 70).ms,
+                                      duration: 320.ms,
+                                      curve: Curves.easeOutCubic,
+                                    ),
+                                ],
+                              )
+                            : const SizedBox.shrink(),
+                      ),
                     ],
                     if (completed.isNotEmpty) ...[
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                        child: Text(
-                          'Completed',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
+                      SectionHeader(
+                        title: 'Completed',
+                        count: completed.length,
+                        icon: Icons.check_circle_rounded,
+                        isExpanded: _completedExpanded,
+                        onToggle: () => setState(
+                          () => _completedExpanded = !_completedExpanded,
                         ),
                       ),
-                      for (final task in completed)
-                        QueueTile(
-                          key: ValueKey(task.id),
-                          task: task,
-                          onRemove: () => ref
-                              .read(queueProvider.notifier)
-                              .remove(task.id),
-                        ),
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment.topCenter,
+                        child: _completedExpanded
+                            ? Column(
+                                children: [
+                                  for (var i = 0; i < completed.length; i++)
+                                    QueueTile(
+                                      key: ValueKey(completed[i].id),
+                                      task: completed[i],
+                                      onRemove: () => ref
+                                          .read(queueProvider.notifier)
+                                          .remove(completed[i].id),
+                                    ).animate(
+                                      key: ValueKey(
+                                        'completed-${completed[i].id}',
+                                      ),
+                                    ).fadeIn(
+                                      delay: (i * 70).ms,
+                                      duration: 320.ms,
+                                      curve: Curves.easeOut,
+                                    ).slideY(
+                                      begin: 0.12,
+                                      end: 0,
+                                      delay: (i * 70).ms,
+                                      duration: 320.ms,
+                                      curve: Curves.easeOutCubic,
+                                    ),
+                                ],
+                              )
+                            : const SizedBox.shrink(),
+                      ),
                     ],
                   ],
                 ),
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add),
-        label: const Text('New Encode'),
+      floatingActionButton: _PulseFab(
         onPressed: () => _openEditor(context),
+      ),
+    );
+  }
+}
+
+/// "New Encode" FAB with a subtle scale-and-rotate press animation.
+///
+/// Pressing the FAB briefly scales it down and rotates the "+" icon, giving
+/// tactile feedback without rebuilding the whole screen.
+class _PulseFab extends StatefulWidget {
+  const _PulseFab({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  State<_PulseFab> createState() => _PulseFabState();
+}
+
+class _PulseFabState extends State<_PulseFab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+    lowerBound: 0,
+    upperBound: 1,
+  );
+  late final Animation<double> _scale = Tween(begin: 1.0, end: 0.92).animate(
+    CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+  );
+  late final Animation<double> _rotate = Tween(begin: 0.0, end: 0.25).animate(
+    CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(_) => _controller.forward();
+  void _onTapUp(_) => _controller.reverse();
+  void _onTapCancel() => _controller.reverse();
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _scale,
+      child: RotationTransition(
+        turns: _rotate,
+        child: GestureDetector(
+          onTapDown: _onTapDown,
+          onTapUp: _onTapUp,
+          onTapCancel: _onTapCancel,
+          child: FloatingActionButton.extended(
+            icon: const Icon(Icons.add),
+            label: const Text('New Encode'),
+            onPressed: widget.onPressed,
+          ),
+        ),
       ),
     );
   }

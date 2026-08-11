@@ -63,6 +63,7 @@ dependencies:
   # UI & Feedback
   awesome_snackbar_content: ^0.1.8
   flutter_markdown_plus: ^1.0.7
+  flutter_animate: ^4.5.2
 
   # Notifications
   flutter_local_notifications: ^22.0.1
