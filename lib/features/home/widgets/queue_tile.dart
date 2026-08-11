@@ -32,6 +32,8 @@ class _QueueTileState extends ConsumerState<QueueTile> {
 
   /// Builds the expandable details panel showing paths, duration, and share action.
   Widget _buildDetailsPanel(BuildContext context, EncodeTask task) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final duration = (task.startedAt != null && task.finishedAt != null)
         ? task.finishedAt!.difference(task.startedAt!)
         : Duration.zero;
@@ -50,25 +52,43 @@ class _QueueTileState extends ConsumerState<QueueTile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _DetailRow(label: 'Source', value: sourceDisplay),
-          const SizedBox(height: 4),
-          _DetailRow(label: 'Output', value: outputDisplay),
-          const SizedBox(height: 4),
-          _DetailRow(
-            label: 'Processed',
-            value: FormatParsers.formatDuration(duration.inSeconds),
-          ),
-          if (task.status == EncodeStatus.completed) ...[
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                icon: const Icon(Icons.share_outlined, size: 18),
-                label: const Text('Share'),
-                onPressed: () => _shareOutput(context, task),
+          // Distinct surfaced container so the expanded content reads as a
+          // cohesive panel rather than floating rows.
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: scheme.outlineVariant.withValues(alpha: 0.4),
               ),
             ),
-          ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DetailRow(label: 'Source', value: sourceDisplay),
+                const SizedBox(height: 8),
+                _DetailRow(label: 'Output', value: outputDisplay),
+                const SizedBox(height: 8),
+                _DetailRow(
+                  label: 'Processed',
+                  value: FormatParsers.formatDuration(duration.inSeconds),
+                ),
+                if (task.status == EncodeStatus.completed) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      icon: const Icon(Icons.share_outlined, size: 18),
+                      label: const Text('Share'),
+                      onPressed: () => _shareOutput(context, task),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
           const Divider(height: 16),
         ],
       ),
@@ -254,7 +274,10 @@ class _StatusIcon extends StatelessWidget {
         Icons.pause_circle_outline_rounded,
         scheme.tertiary,
       ),
-      EncodeStatus.completed => (Icons.check_circle_rounded, scheme.tertiary),
+      EncodeStatus.completed => (
+        Icons.check_circle_rounded,
+        scheme.tertiary,
+      ),
       EncodeStatus.failed => (Icons.error_outline_rounded, scheme.error),
       EncodeStatus.cancelled => (
         Icons.cancel_outlined,

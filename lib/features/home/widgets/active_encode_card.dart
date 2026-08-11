@@ -160,7 +160,7 @@ class _RunningSpotlight extends StatelessWidget {
                     )
                   else ...[
                     // Stats as small raised cards with icons — each metric
-                    // gets its own chip for a polished, scannable layout.
+                    // gets its own chip with a distinct accent color.
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final cards = [
@@ -168,21 +168,25 @@ class _RunningSpotlight extends StatelessWidget {
                             icon: Icons.speed_rounded,
                             label: 'FPS',
                             value: progress!.formattedFps,
+                            color: scheme.primary,
                           ),
                           _StatCard(
                             icon: Icons.fast_forward_rounded,
                             label: 'Speed',
                             value: progress!.formattedSpeed,
+                            color: scheme.tertiary,
                           ),
                           _StatCard(
                             icon: Icons.timer_outlined,
                             label: 'ETA',
                             value: progress!.formattedEta,
+                            color: scheme.error,
                           ),
                           _StatCard(
                             icon: Icons.data_usage_rounded,
                             label: 'Bitrate',
                             value: progress!.formattedBitrate,
+                            color: scheme.secondary,
                           ),
                         ];
                         // Two cards per row on narrow screens, four on wide.
@@ -412,11 +416,15 @@ class _StatCard extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    required this.color,
   });
 
   final IconData icon;
   final String label;
   final String value;
+
+  /// Distinct accent color for this stat (icon + label + value).
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -439,7 +447,7 @@ class _StatCard extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 14, color: scheme.primary),
+              Icon(icon, size: 14, color: color),
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
@@ -447,8 +455,8 @@ class _StatCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
+                    color: color,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -461,6 +469,7 @@ class _StatCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.labelMedium?.copyWith(
               fontWeight: FontWeight.w700,
+              color: color,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),

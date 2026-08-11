@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../data/models/media_info.dart';
 import '../../../../data/models/transcode_preset.dart';
@@ -73,6 +74,21 @@ class QuickEditTab extends StatelessWidget {
         '${s.toString().padLeft(2, '0')}';
   }
 
+  /// Compact decoration for the start/end time fields: shorter vertical
+  /// padding so the row is slimmer than the default inputs.
+  InputDecoration _timeDecoration({
+    required String label,
+    required IconData icon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: '00:00:00',
+      border: OutlineInputBorder(),
+      prefixIcon: Icon(icon, size: 20),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -95,12 +111,12 @@ class QuickEditTab extends StatelessWidget {
             child: TextFormField(
               controller: startController,
               validator: _validateTime,
-              decoration: const InputDecoration(
-                labelText: 'Start Time',
-                hintText: '00:00:00',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.play_arrow, size: 20),
+              decoration: _timeDecoration(
+                label: 'Start Time',
+                icon: Icons.play_arrow,
               ),
+              keyboardType: TextInputType.number,
+              inputFormatters: const [TimeInputFormatter()],
             ),
           ),
           const SizedBox(width: 12),
@@ -108,12 +124,12 @@ class QuickEditTab extends StatelessWidget {
             child: TextFormField(
               controller: endController,
               validator: _validateTime,
-              decoration: const InputDecoration(
-                labelText: 'End Time',
-                hintText: '00:00:00',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.stop, size: 20),
+              decoration: _timeDecoration(
+                label: 'End Time',
+                icon: Icons.stop,
               ),
+              keyboardType: TextInputType.number,
+              inputFormatters: const [TimeInputFormatter()],
             ),
           ),
         ],
@@ -266,6 +282,39 @@ class QuickEditTab extends StatelessWidget {
         ],
       ),
       ),
+    );
+  }
+}
+
+/// Restricts input to the strict `HH:MM:SS` time format.
+///
+/// Only digits and colons are allowed; colons are auto-inserted every two
+/// digits and the value is capped at 8 characters, so users can't type
+/// arbitrary text into the start/end time fields.
+class TimeInputFormatter extends TextInputFormatter {
+  const TimeInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    // Keep only digits, then rebuild as HH:MM:SS.
+    final digits = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
+    final capped = digits.length > 6 ? digits.substring(0, 6) : digits;
+
+    final buffer = StringBuffer();
+    for (var i = 0; i < capped.length; i++) {
+      if (i == 2 || i == 4) buffer.write(':');
+      buffer.write(capped[i]);
+    }
+
+    final formatted = buffer.toString();
+    // Preserve cursor position roughly: place it after the formatted text.
+    final selectionEnd = formatted.length;
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: selectionEnd),
     );
   }
 }
