@@ -158,14 +158,20 @@ class VideoTab extends ConsumerWidget {
     final currentAR = _currentAR;
     final outputDims = _outputDimensionsText();
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SectionCard(
-            title: 'Video Configuration',
-            icon: Icons.videocam_outlined,
+    // Compact density scoped to the tab so choice chips stay smaller than the
+    // 48px default tap target without shrinking the app's other controls.
+    return Theme(
+      data: Theme.of(context).copyWith(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionCard(
+              title: 'Video Configuration',
+              icon: Icons.videocam_outlined,
             children: [
               Text('Video Codec', style: labelStyle),
               const SizedBox(height: 8),
@@ -407,6 +413,7 @@ class VideoTab extends ConsumerWidget {
             ),
           ],
         ],
+      ),
       ),
     );
   }

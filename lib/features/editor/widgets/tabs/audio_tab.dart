@@ -48,11 +48,17 @@ class AudioTab extends StatelessWidget {
     final showBitrate =
         !isAudioCopy && !removeAudio && audioCodec != AudioCodec.flac;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: SectionCard(
-        title: 'Audio Configuration',
-        icon: Icons.graphic_eq_outlined,
+    // Compact density scoped to the tab so choice chips stay smaller than the
+    // 48px default tap target without shrinking the app's other controls.
+    return Theme(
+      data: Theme.of(context).copyWith(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: SectionCard(
+          title: 'Audio Configuration',
+          icon: Icons.graphic_eq_outlined,
         children: [
           Text('Audio Codec', style: labelStyle),
           const SizedBox(height: 8),
@@ -92,6 +98,7 @@ class AudioTab extends StatelessWidget {
             ),
           ],
         ],
+      ),
       ),
     );
   }

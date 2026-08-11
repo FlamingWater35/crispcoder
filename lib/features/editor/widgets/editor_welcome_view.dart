@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../../data/models/transcode_preset.dart';
 import 'source_picker.dart';
@@ -93,30 +94,41 @@ class EditorWelcomeView extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  _ModeChip(
-                    icon: Icons.movie_outlined,
-                    label: 'Video',
-                    selected: outputType == OutputType.video,
-                    onTap: () => onOutputTypeChanged(OutputType.video),
+              // Output-mode selector: a segmented control matching the
+              // pre-redesign style, with an animated entrance.
+              SegmentedButton<OutputType>(
+                segments: const [
+                  ButtonSegment(
+                    value: OutputType.video,
+                    label: Text('Video'),
+                    icon: Icon(Icons.movie_outlined),
                   ),
-                  _ModeChip(
-                    icon: Icons.music_note_outlined,
-                    label: 'Audio',
-                    selected: outputType == OutputType.audio,
-                    onTap: () => onOutputTypeChanged(OutputType.audio),
+                  ButtonSegment(
+                    value: OutputType.audio,
+                    label: Text('Audio'),
+                    icon: Icon(Icons.music_note_outlined),
                   ),
-                  _ModeChip(
-                    icon: Icons.subtitles_outlined,
-                    label: 'Subtitles',
-                    selected: outputType == OutputType.subtitle,
-                    onTap: () => onOutputTypeChanged(OutputType.subtitle),
+                  ButtonSegment(
+                    value: OutputType.subtitle,
+                    label: Text('Subtitles'),
+                    icon: Icon(Icons.subtitles_outlined),
                   ),
                 ],
+                selected: {outputType},
+                onSelectionChanged: (selection) =>
+                    onOutputTypeChanged(selection.first),
+              ).animate(
+                key: ValueKey('mode-selector'),
+              ).fadeIn(
+                delay: 150.ms,
+                duration: 400.ms,
+                curve: Curves.easeOut,
+              ).slideY(
+                begin: 0.12,
+                end: 0,
+                delay: 150.ms,
+                duration: 400.ms,
+                curve: Curves.easeOutCubic,
               ),
               const SizedBox(height: 32),
 
@@ -128,68 +140,6 @@ class EditorWelcomeView extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Selectable chip for the output-mode choice.
-class _ModeChip extends StatelessWidget {
-  const _ModeChip({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        // Compact vertical padding so chips sit closer together.
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-        decoration: BoxDecoration(
-          color: selected
-              ? scheme.primary.withValues(alpha: 0.16)
-              : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected
-                ? scheme.primary.withValues(alpha: 0.8)
-                : scheme.outlineVariant,
-            width: selected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: selected ? scheme.primary : scheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: selected ? scheme.primary : scheme.onSurfaceVariant,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
         ),
       ),
     );

@@ -227,14 +227,20 @@ class QuickEditTab extends StatelessWidget {
       ]);
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SectionCard(
-            title: 'Preset',
-            icon: Icons.tune_rounded,
+    // Compact density scoped to the tab so choice chips stay smaller than the
+    // 48px default tap target without shrinking the app's other controls.
+    return Theme(
+      data: Theme.of(context).copyWith(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SectionCard(
+              title: 'Preset',
+              icon: Icons.tune_rounded,
             children: [
               PresetDropdown(
                 presets: presets,
@@ -250,6 +256,7 @@ class QuickEditTab extends StatelessWidget {
             children: editChildren,
           ),
         ],
+      ),
       ),
     );
   }

@@ -43,15 +43,21 @@ class OutputTab extends StatelessWidget {
 
     final originalContainer = _mapContainer(mediaInfo.container);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: SectionCard(
-        title: 'Container Configuration',
-        icon: Icons.folder_outlined,
-        children: [
-          Text('Format', style: labelStyle),
-          const SizedBox(height: 8),
-          // Container Format Chips
+    // Compact density scoped to the tab so choice chips stay smaller than the
+    // 48px default tap target without shrinking the app's other controls.
+    return Theme(
+      data: Theme.of(context).copyWith(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: SectionCard(
+          title: 'Container Configuration',
+          icon: Icons.folder_outlined,
+          children: [
+            Text('Format', style: labelStyle),
+            const SizedBox(height: 8),
+            // Container Format Chips
           Wrap(
             spacing: 8.0,
             runSpacing: 8.0,
@@ -81,6 +87,7 @@ class OutputTab extends StatelessWidget {
             ),
           ],
         ],
+      ),
       ),
     );
   }

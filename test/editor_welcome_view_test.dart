@@ -46,6 +46,18 @@ void main() {
     expect(selected, OutputType.audio);
   });
 
+  testWidgets('mode selector uses a segmented control', (tester) async {
+    await pumpWelcome(tester);
+
+    // The three output modes are side-by-side segments in one control.
+    expect(find.byType(SegmentedButton<OutputType>), findsOneWidget);
+    final videoX = tester.getCenter(find.text('Video')).dx;
+    final audioX = tester.getCenter(find.text('Audio')).dx;
+    final subsX = tester.getCenter(find.text('Subtitles')).dx;
+    expect(audioX, greaterThan(videoX));
+    expect(subsX, greaterThan(audioX));
+  });
+
   testWidgets('probing shows the reading state', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

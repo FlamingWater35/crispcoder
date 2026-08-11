@@ -144,6 +144,12 @@ abstract final class AppTheme {
       labelStyle: base.textTheme.labelMedium?.copyWith(
         color: scheme.onSurfaceVariant,
       ),
+      // Chips: moderately compact — smaller than the default 48px touch
+      // target but not tiny. The per-chip materialTapTargetSize + visualDensity
+      // (set on each ChoiceChip) lets them shrink below the 48px minimum.
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      labelPadding: const EdgeInsets.symmetric(horizontal: 6),
+      showCheckmark: false,
     );
 
     final dividerTheme = DividerThemeData(

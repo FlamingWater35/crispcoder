@@ -356,6 +356,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     bool isUsingHw,
     String encoderFeedback,
   ) {
+    final theme = Theme.of(context);
     final mediaInfo = _mediaInfo!;
     final tabs = <Tab>[];
     final tabViews = <Widget>[];
@@ -533,10 +534,39 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       length: tabs.length,
       child: Column(
         children: [
-          TabBar(
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            tabs: tabs,
+          // Styled tab bar: a rounded secondary-container "pill" that makes
+          // the loaded editor state visually distinct from the welcome view.
+          Padding(
+            // Minimal bottom padding so the bar sits close to the options
+            // below it.
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+            child: Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: TabBar(
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                dividerColor: Colors.transparent,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  color: theme.colorScheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                // Rounded focus/selection highlight.
+                splashBorderRadius: BorderRadius.circular(10),
+                labelColor: theme.colorScheme.onSecondaryContainer,
+                unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+                labelStyle: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelStyle: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+                tabs: tabs,
+              ),
+            ),
           ),
           Expanded(child: TabBarView(children: tabViews)),
         ],
