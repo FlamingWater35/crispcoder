@@ -159,15 +159,47 @@ class _RunningSpotlight extends StatelessWidget {
                       ),
                     )
                   else ...[
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 4,
-                      children: [
-                        _Meta(label: progress!.formattedFps),
-                        _Meta(label: progress!.formattedSpeed),
-                        _Meta(label: 'ETA ${progress!.formattedEta}'),
-                        _Meta(label: progress!.formattedBitrate),
-                      ],
+                    // Stats as small raised cards with icons — each metric
+                    // gets its own chip for a polished, scannable layout.
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cards = [
+                          _StatCard(
+                            icon: Icons.speed_rounded,
+                            label: 'FPS',
+                            value: progress!.formattedFps,
+                          ),
+                          _StatCard(
+                            icon: Icons.fast_forward_rounded,
+                            label: 'Speed',
+                            value: progress!.formattedSpeed,
+                          ),
+                          _StatCard(
+                            icon: Icons.timer_outlined,
+                            label: 'ETA',
+                            value: progress!.formattedEta,
+                          ),
+                          _StatCard(
+                            icon: Icons.data_usage_rounded,
+                            label: 'Bitrate',
+                            value: progress!.formattedBitrate,
+                          ),
+                        ];
+                        // Two cards per row on narrow screens, four on wide.
+                        final perRow = constraints.maxWidth >= 380 ? 4 : 2;
+                        final gap = 8.0;
+                        final width =
+                            (constraints.maxWidth - (perRow - 1) * gap) /
+                            perRow;
+                        return Wrap(
+                          spacing: gap,
+                          runSpacing: gap,
+                          children: [
+                            for (final card in cards)
+                              SizedBox(width: width, child: card),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ],
@@ -289,10 +321,13 @@ class _ProgressRing extends StatefulWidget {
 class _ProgressRingState extends State<_ProgressRing>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-  late final Animation<double> _animation;
+  late final CurvedAnimation _curve;
 
   /// Value the ring currently displays; the begin of the next tween.
   double _displayed = 0;
+
+  /// Latest target value; null while indeterminate (no progress yet).
+  double? _target;
 
   @override
   void initState() {
@@ -301,8 +336,12 @@ class _ProgressRingState extends State<_ProgressRing>
       vsync: this,
       duration: const Duration(milliseconds: 400),
     );
-    _displayed = _targetOf(widget.percent) ?? 0;
-    _animation = _buildAnimation(_displayed, _displayed);
+    _curve = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
+    _target = _targetOf(widget.percent);
+    if (_target != null) _displayed = _target!;
   }
 
   @override
@@ -310,25 +349,18 @@ class _ProgressRingState extends State<_ProgressRing>
     super.didUpdateWidget(oldWidget);
     final newTarget = _targetOf(widget.percent);
     if (newTarget == null) return; // indeterminate — keep current value
-    if ((newTarget - _displayed).abs() < 0.0001) return;
-    final begin = _animation.isAnimating ? _animation.value : _displayed;
-    _animation = _buildAnimation(begin, newTarget);
-    _displayed = newTarget;
+    if (_target != null && (newTarget - _target!).abs() < 0.0001) return;
+    _displayed = _target ?? _displayed;
+    _target = newTarget;
     _controller.forward(from: 0);
   }
 
   static double? _targetOf(double? percent) =>
       percent == null ? null : percent / 100;
 
-  Animation<double> _buildAnimation(double begin, double end) {
-    return CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutCubic,
-    ).drive(Tween(begin: begin, end: end));
-  }
-
   @override
   void dispose() {
+    _curve.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -348,9 +380,12 @@ class _ProgressRingState extends State<_ProgressRing>
             width: 76,
             height: 76,
             child: AnimatedBuilder(
-              animation: _animation,
+              animation: _controller,
               builder: (context, _) => CircularProgressIndicator(
-                value: value == null ? null : _animation.value,
+                value: value == null
+                    ? null
+                    : Tween<double>(begin: _displayed, end: _target!)
+                        .evaluate(_curve),
                 strokeWidth: 7,
                 strokeCap: StrokeCap.round,
                 backgroundColor: scheme.surfaceContainerHighest,
@@ -371,17 +406,65 @@ class _ProgressRingState extends State<_ProgressRing>
   }
 }
 
-class _Meta extends StatelessWidget {
-  const _Meta({required this.label});
+/// Small raised stat card: icon, value, and a label underneath.
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
+  final IconData icon;
   final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-        fontFeatures: const [FontFeature.tabularFigures()],
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: scheme.primary),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
       ),
     );
   }

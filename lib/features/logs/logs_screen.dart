@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+
+import '../../core/utils/responsive.dart';
 
 /// Parsed representation of a single log event.
 class LogEntry {
@@ -143,130 +146,265 @@ class _LogsScreenState extends State<LogsScreen> {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-              child: SearchBar(
-                controller: _searchController,
-                hintText: 'Search logs...',
-                leading: const Icon(Icons.search_rounded),
-                elevation: const WidgetStatePropertyAll(2.0),
-                trailing: [
-                  if (_searchQuery.isNotEmpty)
-                    IconButton(
-                      icon: const Icon(Icons.clear_rounded),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _searchQuery = '');
-                      },
-                    ),
-                ],
-                onChanged: (value) =>
-                    setState(() => _searchQuery = value.trim()),
+        child: centeredContent(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: SearchBar(
+                  controller: _searchController,
+                  hintText: 'Search logs...',
+                  leading: const Icon(Icons.search_rounded),
+                  trailing: [
+                    if (_searchQuery.isNotEmpty)
+                      IconButton(
+                        icon: const Icon(Icons.clear_rounded),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _searchQuery = value.trim()),
+                ),
               ),
-            ),
-            // Log List
-            Expanded(
-              child: ValueListenableBuilder<int>(
-                valueListenable: LogsScreen._notifier,
-                builder: (context, count, _) {
-                  if (LogsScreen._buffer.isEmpty) {
-                    return const Center(child: Text('No log output yet.'));
-                  }
+              // Log List
+              Expanded(
+                child: ValueListenableBuilder<int>(
+                  valueListenable: LogsScreen._notifier,
+                  builder: (context, count, _) {
+                    // Filter logs based on search query
+                    final filteredLogs = _searchQuery.isEmpty
+                        ? LogsScreen._buffer
+                        : LogsScreen._buffer.where((e) {
+                            final q = _searchQuery.toLowerCase();
+                            return e.message.toLowerCase().contains(q) ||
+                                e.timecode.toLowerCase().contains(q);
+                          }).toList();
 
-                  // Filter logs based on search query
-                  final filteredLogs = _searchQuery.isEmpty
-                      ? LogsScreen._buffer
-                      : LogsScreen._buffer.where((e) {
-                          final q = _searchQuery.toLowerCase();
-                          return e.message.toLowerCase().contains(q) ||
-                              e.timecode.toLowerCase().contains(q);
-                        }).toList();
+                    if (LogsScreen._buffer.isEmpty) {
+                      return const _EmptyLogState();
+                    }
+                    if (filteredLogs.isEmpty) {
+                      return const _NoSearchResults();
+                    }
 
-                  if (filteredLogs.isEmpty) {
-                    return const Center(
-                      child: Text('No logs match your search.'),
-                    );
-                  }
-
-                  return Scrollbar(
-                    controller: _scrollController,
-                    thumbVisibility: true,
-                    trackVisibility: true,
-                    interactive: true, // Makes the scrollbar draggable
-                    thickness: 10,
-                    radius: Radius.circular(6),
-                    child: ListView.builder(
+                    // The Scrollbar + ListView are built once per frame with a
+                    // stable controller, so log pushes (which rebuild this
+                    // builder) never recreate the scrollbar.
+                    //
+                    // thumbVisibility/trackVisibility are intentionally OFF:
+                    // this is a live-growing reverse list, so the thumb extent
+                    // shrinks whenever a tall entry arrives. An always-visible
+                    // track redraws constantly during streaming and reads as
+                    // the thumb "jumping". The overlay scrollbar only appears
+                    // while the user scrolls, which stays stable.
+                    return Scrollbar(
                       controller: _scrollController,
-                      // reverse: true anchors the list at the bottom (newest
-                      // log), so appending entries never shifts the viewport
-                      // or makes the scrollbar thumb jump.
-                      reverse: true,
-                      itemCount: filteredLogs.length,
-                      itemBuilder: (context, i) {
-                        // In a reverse list, index 0 renders at the bottom.
-                        final entry = filteredLogs[
-                            filteredLogs.length - 1 - i];
-                        return _LogTile(entry: entry);
-                      },
-                    ),
-                  );
-                },
+                      interactive: true, // Makes the scrollbar draggable
+                      thickness: 10,
+                      radius: Radius.circular(6),
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        // reverse: true anchors the list at the bottom (newest
+                        // log), so appending entries never shifts the viewport
+                        // or makes the scrollbar thumb jump.
+                        reverse: true,
+                        // In a reverse list the bottom padding renders at the
+                        // visual bottom; keep it small so there is no big
+                        // empty gap under the newest entry.
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+                        itemCount: filteredLogs.length,
+                        itemBuilder: (context, i) {
+                          // In a reverse list, index 0 renders at the bottom.
+                          final entry = filteredLogs[
+                              filteredLogs.length - 1 - i];
+                          return _LogTile(
+                            // Content-stable key: based on timecode + message,
+                            // NOT the index — indices shift as new entries
+                            // append at the bottom, which would otherwise
+                            // rebuild every tile and make the scrollbar jump.
+                            key: ValueKey(
+                              'log-${entry.timecode}-${entry.message.hashCode}',
+                            ),
+                            entry: entry,
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       floatingActionButton: ValueListenableBuilder<bool>(
         valueListenable: _showFabNotifier,
-        builder: (context, showFab, _) => showFab
-            ? FloatingActionButton(
-                tooltip: 'Jump to bottom',
-                mini: true,
-                onPressed: _scrollToBottom,
-                child: const Icon(Icons.arrow_downward_rounded),
-              )
-            : const SizedBox.shrink(),
+        builder: (context, showFab, _) => AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          transitionBuilder: (child, animation) => ScaleTransition(
+            scale: animation,
+            child: FadeTransition(opacity: animation, child: child),
+          ),
+          child: showFab
+              ? FloatingActionButton(
+                  key: const ValueKey('jump-to-bottom'),
+                  // Unique hero tag — see the home screen's FAB comment: the
+                  // shell mounts both FABs in one route subtree (IndexedStack).
+                  heroTag: 'fab-jump-to-bottom',
+                  tooltip: 'Jump to bottom',
+                  mini: true,
+                  onPressed: _scrollToBottom,
+                  child: const Icon(Icons.arrow_downward_rounded),
+                )
+              : const SizedBox.shrink(),
+        ),
       ),
     );
   }
 }
 
-/// Visual representation of a single [LogEntry].
-/// Shows the timecode at the top, and the actual log message below it.
+/// Friendly placeholder shown when no logs have been captured yet.
+class _EmptyLogState extends StatelessWidget {
+  const _EmptyLogState();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.receipt_long_outlined,
+                size: 40,
+                color: scheme.onSurfaceVariant,
+              ),
+            )
+                .animate()
+                .fadeIn(duration: 400.ms)
+                .scale(
+                  begin: const Offset(0.85, 0.85),
+                  end: const Offset(1, 1),
+                  duration: 400.ms,
+                  curve: Curves.easeOutBack,
+                ),
+            const SizedBox(height: 20),
+            Text('No log output yet.', style: theme.textTheme.titleMedium)
+                .animate()
+                .fadeIn(delay: 100.ms, duration: 300.ms),
+            const SizedBox(height: 8),
+            Text(
+              'FFmpeg activity and app events will appear here.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            )
+                .animate()
+                .fadeIn(delay: 160.ms, duration: 300.ms),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when a search yields no matching entries.
+class _NoSearchResults extends StatelessWidget {
+  const _NoSearchResults();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off_rounded,
+              size: 48,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No logs match your search.',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Visual representation of a single [LogEntry] as a surfaced card.
+///
+/// The timecode sits in a small rounded chip above the monospace message,
+/// giving the log stream a cleaner, more scannable rhythm than a flat divider
+/// list.
 class _LogTile extends StatelessWidget {
-  const _LogTile({required this.entry});
+  const _LogTile({super.key, required this.entry});
   final LogEntry entry;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (entry.timecode.isNotEmpty)
-            Text(
-              entry.timecode,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'monospace',
+    final scheme = theme.colorScheme;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (entry.timecode.isNotEmpty) ...[
+              Row(
+                children: [
+                  Icon(Icons.schedule_rounded, size: 13, color: scheme.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    entry.timecode,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'monospace',
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          if (entry.message.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              entry.message,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontFamily: 'monospace',
+              const SizedBox(height: 6),
+            ],
+            if (entry.message.isNotEmpty)
+              Text(
+                entry.message,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontFamily: 'monospace',
+                  height: 1.45,
+                  color: scheme.onSurface,
+                ),
               ),
-            ),
           ],
-          const Divider(height: 16),
-        ],
+        ),
       ),
     );
   }

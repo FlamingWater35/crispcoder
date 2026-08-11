@@ -11,6 +11,9 @@ void main() {
 
   testWidgets('shows empty state when no logs', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: LogsScreen()));
+    // Settle the empty-state entrance animation timers.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('No log output yet.'), findsOneWidget);
     expect(find.byType(Scrollbar), findsNothing);

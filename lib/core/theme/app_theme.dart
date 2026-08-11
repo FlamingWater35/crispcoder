@@ -117,13 +117,13 @@ abstract final class AppTheme {
     final appBarTheme = AppBarTheme(
       elevation: 0,
       scrolledUnderElevation: 1,
-      centerTitle: false,
+      centerTitle: true,
       backgroundColor: scheme.surface,
       surfaceTintColor: Colors.transparent,
       systemOverlayStyle: brightness == Brightness.dark
           ? SystemUiOverlayStyle.light
           : SystemUiOverlayStyle.dark,
-      titleTextStyle: base.textTheme.headlineSmall?.copyWith(
+      titleTextStyle: base.textTheme.headlineMedium?.copyWith(
         fontWeight: FontWeight.w700,
         letterSpacing: -0.25,
         color: scheme.onSurface,

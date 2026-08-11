@@ -9,6 +9,7 @@ import '../editor/editor_screen.dart';
 import 'widgets/active_encode_card.dart';
 import 'widgets/empty_queue_state.dart';
 import 'widgets/queue_tile.dart';
+import 'widgets/resume_queue_banner.dart';
 import 'widgets/section_header.dart';
 import 'widgets/status_summary.dart';
 
@@ -121,6 +122,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       completed: completedCount,
                     ),
                     const ActiveEncodeCard(),
+                    if (pending.isNotEmpty && runningCount == 0) ...[
+                      ResumeQueueBanner(
+                        count: pending.length,
+                        onResume: () => ref
+                            .read(queueProvider.notifier)
+                            .resume(),
+                      ),
+                    ],
                     if (pending.isNotEmpty) ...[
                       SectionHeader(
                         title: 'In queue',
@@ -236,10 +245,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// "New Encode" FAB with a subtle scale-and-rotate press animation.
+/// "New Encode" FAB with a subtle scale-on-press animation.
 ///
-/// Pressing the FAB briefly scales it down and rotates the "+" icon, giving
-/// tactile feedback without rebuilding the whole screen.
+/// Pressing the FAB briefly scales it down for tactile feedback. Rotation is
+/// intentionally absent — a hold must not leave the icon at an angle.
 class _PulseFab extends StatefulWidget {
   const _PulseFab({required this.onPressed});
 
@@ -260,9 +269,6 @@ class _PulseFabState extends State<_PulseFab>
   late final Animation<double> _scale = Tween(begin: 1.0, end: 0.92).animate(
     CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
   );
-  late final Animation<double> _rotate = Tween(begin: 0.0, end: 0.25).animate(
-    CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-  );
 
   @override
   void dispose() {
@@ -278,17 +284,18 @@ class _PulseFabState extends State<_PulseFab>
   Widget build(BuildContext context) {
     return ScaleTransition(
       scale: _scale,
-      child: RotationTransition(
-        turns: _rotate,
-        child: GestureDetector(
-          onTapDown: _onTapDown,
-          onTapUp: _onTapUp,
-          onTapCancel: _onTapCancel,
-          child: FloatingActionButton.extended(
-            icon: const Icon(Icons.add),
-            label: const Text('New Encode'),
-            onPressed: widget.onPressed,
-          ),
+      child: GestureDetector(
+        onTapDown: _onTapDown,
+        onTapUp: _onTapUp,
+        onTapCancel: _onTapCancel,
+        child: FloatingActionButton.extended(
+          // Unique hero tag: the shell keeps the Logs screen's FAB mounted in
+          // the same route subtree (IndexedStack), so a default tag would
+          // collide and throw "multiple heroes share the same tag".
+          heroTag: 'fab-new-encode',
+          icon: const Icon(Icons.add),
+          label: const Text('New Encode'),
+          onPressed: widget.onPressed,
         ),
       ),
     );

@@ -23,6 +23,17 @@ class _FixedProgressNotifier extends ActiveEncodeNotifier {
   EncodeProgress? build() => _progress;
 }
 
+/// Notifier override whose value can be updated mid-test to simulate live
+/// progress ticks from the transcoder.
+class _MutableProgressNotifier extends ActiveEncodeNotifier {
+  EncodeProgress? _progress;
+
+  void update(EncodeProgress? progress) => state = progress;
+
+  @override
+  EncodeProgress? build() => _progress;
+}
+
 /// Seeds tasks via real Hive I/O. Must run inside tester.runAsync because
 /// testWidgets bodies execute in a FakeAsync zone where real async I/O
 /// (file writes) never completes.
@@ -157,6 +168,10 @@ void main() {
     // Single pending task → header is the singular form
     expect(find.text('In queue'), findsOneWidget);
 
+    // Nothing running + pending work → resume banner is shown
+    expect(find.text('Resume encode'), findsOneWidget);
+    expect(find.text('One task waiting'), findsOneWidget);
+
     // The pending task appears twice: in the "Up next" card and in the
     // "In queue" tile. The completed task appears only in its tile.
     expect(find.text('alpha.mp4'), findsNWidgets(2));
@@ -210,6 +225,9 @@ void main() {
     expect(find.text('Starting the process...'), findsOneWidget);
     expect(find.text('Cancel'), findsNothing);
 
+    // A running task means there is nothing to resume — no banner.
+    expect(find.text('Resume encode'), findsNothing);
+
     // Cancel is only shown once progress arrives (not covered here)
   });
 
@@ -237,11 +255,75 @@ void main() {
 
     // 42.5% rounds to 43% with toStringAsFixed(0) in the ring
     expect(find.text('43%'), findsOneWidget); // ring center
+    // Stats now live in labeled cards: values are separate from their labels.
+    expect(find.text('FPS'), findsOneWidget);
     expect(find.text('30.0 fps'), findsOneWidget);
+    expect(find.text('Speed'), findsOneWidget);
     expect(find.text('2.50x'), findsOneWidget);
-    expect(find.text('ETA 01:30'), findsOneWidget);
+    expect(find.text('ETA'), findsOneWidget);
+    expect(find.text('01:30'), findsOneWidget);
+    expect(find.text('Bitrate'), findsOneWidget);
     expect(find.text('1.50 Mbps'), findsOneWidget);
     expect(find.text('Starting the process...'), findsNothing);
+  });
+
+  testWidgets('progress ring survives multiple live progress ticks',
+      (tester) async {
+    await seed(tester, [
+      task(id: 'run-3', name: 'live3.mp4', status: EncodeStatus.running),
+    ]);
+
+    // Mutable notifier so we can push successive progress values, like the
+    // real transcoder does at ~1 Hz.
+    final notifier = _MutableProgressNotifier();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          activeEncodeProvider.overrideWith(() => notifier),
+        ],
+        child: const MaterialApp(home: HomeScreen()),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // First tick
+    notifier.update(
+      const EncodeProgress(
+        taskId: 'run-3',
+        percent: 10,
+        fps: 30.0,
+        speed: 2.5,
+        etaSeconds: 90,
+        bitrateBitsPerSec: 1_500_000,
+        frameNumber: 0,
+        bytesProcessed: 0,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('10%'), findsOneWidget);
+
+    // Second tick — previously crashed with LateInitializationError because
+    // the ring reassigned a `late final` animation field.
+    notifier.update(
+      const EncodeProgress(
+        taskId: 'run-3',
+        percent: 42.5,
+        fps: 30.0,
+        speed: 2.5,
+        etaSeconds: 90,
+        bitrateBitsPerSec: 1_500_000,
+        frameNumber: 0,
+        bytesProcessed: 0,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    // Let the ring animation finish so no timers stay pending.
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('43%'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('clear finished action removes completed tasks',

@@ -68,6 +68,19 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
     }
   }
 
+  /// Starts the next pending task if one exists and nothing is running.
+  ///
+  /// This is the manual entry point to pick up a queue that survived an app
+  /// restart (persisted tasks are demoted to `pending` on bootstrap but are
+  /// never auto-started). No-op when a task is already running or the queue
+  /// has no pending work.
+  Future<void> resume() async {
+    final hasPending = state.any((t) => t.status == EncodeStatus.pending);
+    if (!hasPending) return;
+    if (ref.read(activeEncodeProvider) != null) return;
+    await startNext();
+  }
+
   Future<void> remove(String id) async {
     final task = state.firstWhereOrNull((t) => t.id == id);
     if (task != null && task.status == EncodeStatus.running) {
