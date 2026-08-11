@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_session.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -50,6 +51,40 @@ class TranscodeService {
         .replaceAll("'", "\\'");
   }
 
+  // --- Time helpers -------------------------------------------------------
+
+  /// Parses an `HH:MM:SS` string into a [Duration]. Returns null for empty or
+  /// malformed input.
+  Duration? _parseHms(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final match = RegExp(
+      r'^(\d{1,2}):([0-5]\d):([0-5]\d)$',
+    ).firstMatch(value.trim());
+    if (match == null) return null;
+    return Duration(
+      hours: int.parse(match.group(1)!),
+      minutes: int.parse(match.group(2)!),
+      seconds: int.parse(match.group(3)!),
+    );
+  }
+
+  /// Returns the trimmed output duration in seconds when the user set both
+  /// (or just an end) time. With input-side `-ss`, FFmpeg resets timestamps
+  /// near zero, so `-t` (duration) is used instead of `-to` (absolute end).
+  /// Returns null when no trim applies or the range is invalid.
+  double? _trimDurationSeconds(String? start, String? end) {
+    final endDur = _parseHms(end);
+    if (endDur == null) return null;
+    final base = _parseHms(start) ?? Duration.zero;
+    if (endDur <= base) return null;
+    return (endDur - base).inMilliseconds / 1000.0;
+  }
+
+  /// Formats a duration in seconds for FFmpeg's `-t` option.
+  String _formatSeconds(double seconds) => seconds.toStringAsFixed(3);
+
+  // --- Encoder resolution -------------------------------------------------
+
   /// Resolves the FFmpeg video encoder name based on user preference and
   /// device capability. Forces software encoding when burning subtitles
   /// because the libass `subtitles` filter is incompatible with MediaCodec's
@@ -95,9 +130,87 @@ class TranscodeService {
     };
   }
 
+  // --- Bitrate helpers (all in kbps) --------------------------------------
+
+  /// Rough CRF → target bitrate (kbps) used as a fallback for hardware
+  /// encoders that only support bitrate mode.
+  int? _crfToBitrateKbps(int? crf) {
+    if (crf == null) return null;
+    const base = 8000; // kbps (8 Mbps at CRF 18)
+    final factor = (1 - (crf - 18) * 0.12).clamp(0.15, 1.5);
+    return (base * factor).round();
+  }
+
+  /// Resolution/framerate-aware default bitrate (kbps) for hardware encoders.
+  int _defaultVideoBitrateKbps(TranscodePreset preset) {
+    final fps = preset.framerate ?? 30;
+    final base = switch (preset.resolution ?? 1080) {
+      2160 => 20000,
+      1440 => 12000,
+      1080 => 6000,
+      720 => 3500,
+      480 => 1800,
+      360 => 1200,
+      _ => 2500,
+    };
+    final fpsFactor = fps / 30.0;
+    var result = (base * fpsFactor).round();
+    if (preset.videoCodec == VideoCodec.hevc ||
+        preset.videoCodec == VideoCodec.av1) {
+      result = (result * 0.75).round();
+    }
+    return result.clamp(800, 60000);
+  }
+
+  /// Resolves the effective video bitrate in kbps. [TranscodePreset.videoBitrate]
+  /// is already kbps; otherwise falls back to CRF- or resolution-based guesses.
+  int _resolveVideoBitrateKbps(TranscodePreset preset) {
+    if (preset.videoBitrate != null) return preset.videoBitrate!;
+    final fromCrf = _crfToBitrateKbps(preset.crf);
+    if (fromCrf != null) return fromCrf;
+    return _defaultVideoBitrateKbps(preset);
+  }
+
+  /// Whether generic FFmpeg two-pass (`-pass 1/2`) is reliable for this
+  /// preset. Only software H.264 (libx264) is supported — libx265, SVT-AV1,
+  /// and VP9 need encoder-specific pass handling, so their two-pass is
+  /// silently downgraded to single pass.
+  bool _supportsTwoPass(TranscodePreset preset, DeviceCapability cap) {
+    if (!preset.twoPass) return false;
+    if (preset.videoCodec != VideoCodec.h264) return false;
+    final vEnc = _resolveVideoEncoder(preset, cap);
+    return vEnc != 'copy' && !vEnc.endsWith('_mediacodec');
+  }
+
   /// Builds the FFmpeg argument list for a single encode pass.
-  /// Handles audio/subtitle extraction, video transcode with filters
-  /// (subtitles, crop, scale, fps), and two-pass encoding.
+  ///
+  /// Correctness rules enforced here:
+  /// - `preset.videoBitrate` is **kbps** and passed as `${value}k` (never
+  ///   divided by 1000 again).
+  /// - Trimming uses input-side `-ss` plus `-t <duration>` (never `-to` after
+  ///   input-side seeking, which would measure from the seek point).
+  /// - A null framerate preserves the source timing; `fps=` / `-r` /
+  ///   `-fps_mode cfr` are only emitted when the user explicitly set one.
+  /// - Video copy never emits filters (subtitle burn-in, crop, scale, fps).
+  /// - `-hwaccel mediacodec` is only enabled for pure hardware pipelines
+  ///   (hardware encoder AND no filters), because filters need CPU frames.
+  /// - Playback compatibility flags (`-pix_fmt yuv420p`, `-avoid_negative_ts`,
+  ///   `-max_muxing_queue_size`) are added for encoded video.
+  @visibleForTesting
+  List<String> buildCommandArgs({
+    required EncodeTask task,
+    required TranscodePreset preset,
+    required DeviceCapability cap,
+  }) {
+    return _buildArgs(
+      task: task,
+      preset: preset,
+      cap: cap,
+      passLogPrefix: 'test',
+      isPassOne: false,
+    );
+  }
+
   List<String> _buildArgs({
     required EncodeTask task,
     required TranscodePreset preset,
@@ -107,15 +220,23 @@ class TranscodeService {
   }) {
     final args = <String>[];
 
-    // --- Audio Extraction: no video, encode audio only ---
-    if (preset.outputType == OutputType.audio) {
-      if (preset.startTime != null && preset.startTime!.isNotEmpty) {
-        args.addAll(['-ss', preset.startTime!]);
+    final startTime = preset.startTime?.trim();
+    final endTime = preset.endTime?.trim();
+    final trimSeconds = _trimDurationSeconds(startTime, endTime);
+
+    void addInputSeekAndTrim() {
+      if (startTime != null && startTime.isNotEmpty) {
+        args.addAll(['-ss', startTime]);
       }
       args.addAll(['-y', '-i', task.sourcePath]);
-      if (preset.endTime != null && preset.endTime!.isNotEmpty) {
-        args.addAll(['-to', preset.endTime!]);
+      if (trimSeconds != null) {
+        args.addAll(['-t', _formatSeconds(trimSeconds)]);
       }
+    }
+
+    // --- Audio Extraction: no video, encode audio only ---
+    if (preset.outputType == OutputType.audio) {
+      addInputSeekAndTrim();
       args.addAll(['-vn', '-sn']);
       if (preset.audioCodec != AudioCodec.copy) {
         args.addAll(['-c:a', _resolveAudioEncoder(preset.audioCodec)]);
@@ -131,13 +252,7 @@ class TranscodeService {
 
     // --- Subtitle Extraction ---
     if (preset.outputType == OutputType.subtitle) {
-      if (preset.startTime != null && preset.startTime!.isNotEmpty) {
-        args.addAll(['-ss', preset.startTime!]);
-      }
-      args.addAll(['-y', '-i', task.sourcePath]);
-      if (preset.endTime != null && preset.endTime!.isNotEmpty) {
-        args.addAll(['-to', preset.endTime!]);
-      }
+      addInputSeekAndTrim();
       final subIdx = preset.burnSubtitleIndex ?? 0;
       args.addAll(['-map', '0:s:$subIdx', '-an', '-vn', '-c:s', 'srt']);
       args.add(task.outputPath);
@@ -155,102 +270,106 @@ class TranscodeService {
       wantsHw = false;
     }
 
-    if (wantsHw) {
-      args.addAll(['-hwaccel', 'mediacodec']);
-    }
+    final vEnc = _resolveVideoEncoder(preset, cap);
+    final isHw = vEnc.endsWith('_mediacodec');
 
-    if (preset.startTime != null && preset.startTime!.isNotEmpty) {
-      args.addAll(['-ss', preset.startTime!]);
-    }
-
-    args.addAll(['-y', '-i', task.sourcePath]);
-
-    if (preset.endTime != null && preset.endTime!.isNotEmpty) {
-      args.addAll(['-to', preset.endTime!]);
-    }
-
-    // --- Filter chain ---
+    // --- Filter chain (never for video copy / passthrough) ---
     // Order: subtitles → crop → scale → fps → custom
     final filters = <String>[];
+    if (vEnc != 'copy') {
+      // Burn-in subtitles using libass. Must come before scale so text
+      // is rendered at source resolution then scaled together.
+      if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
+        final escaped = _escapeFilterPath(task.sourcePath);
+        filters.add("subtitles='$escaped':si=${preset.burnSubtitleIndex}");
+      }
 
-    // Burn-in subtitles using libass. Must come before scale so text
-    // is rendered at source resolution then scaled together.
-    if (preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0) {
-      final escaped = _escapeFilterPath(task.sourcePath);
-      filters.add("subtitles='$escaped':si=${preset.burnSubtitleIndex}");
-    }
-
-    // Visual crop (fractional values from crop editor)
-    if (preset.cropWidth != null &&
-        preset.cropWidth! > 0 &&
-        preset.cropHeight != null &&
-        preset.cropHeight! > 0) {
-      final w = preset.cropWidth!;
-      final h = preset.cropHeight!;
-      final x = preset.cropLeft ?? 0.0;
-      final y = preset.cropTop ?? 0.0;
-      filters.add("crop=iw*$w:ih*$h:iw*$x:ih*$y");
-    } else if (preset.aspectRatio != null && preset.aspectRatio!.isNotEmpty) {
-      // Aspect ratio crop: fit video into target AR by cropping edges
-      final parts = preset.aspectRatio!.split(':');
-      if (parts.length == 2) {
-        final arW = double.tryParse(parts[0]) ?? 1;
-        final arH = double.tryParse(parts[1]) ?? 1;
-        if (arW > 0 && arH > 0) {
-          filters.add("crop=min(iw\\,ih*$arW/$arH):min(ih\\,iw*$arH/$arW)");
+      // Visual crop (fractional values from crop editor)
+      if (preset.cropWidth != null &&
+          preset.cropWidth! > 0 &&
+          preset.cropHeight != null &&
+          preset.cropHeight! > 0) {
+        final w = preset.cropWidth!;
+        final h = preset.cropHeight!;
+        final x = preset.cropLeft ?? 0.0;
+        final y = preset.cropTop ?? 0.0;
+        filters.add("crop=iw*$w:ih*$h:iw*$x:ih*$y");
+      } else if (preset.aspectRatio != null && preset.aspectRatio!.isNotEmpty) {
+        // Aspect ratio crop: fit video into target AR by cropping edges
+        final parts = preset.aspectRatio!.split(':');
+        if (parts.length == 2) {
+          final arW = double.tryParse(parts[0]) ?? 1;
+          final arH = double.tryParse(parts[1]) ?? 1;
+          if (arW > 0 && arH > 0) {
+            filters.add("crop=min(iw\\,ih*$arW/$arH):min(ih\\,iw*$arH/$arW)");
+          }
         }
+      }
+
+      // Resolution: fit video inside a standard 16:9 box using
+      // force_original_aspect_ratio=decrease. This means a 2.39:1 video
+      // set to "1080p" becomes 1920x800 (width=1920), NOT 1920x1080.
+      // The conditional if(gt(iw,ih),...) swaps the box for portrait sources.
+      if (preset.resolution != null && preset.resolution! > 0) {
+        final res = preset.resolution!;
+        const resToW = {
+          2160: 3840,
+          1440: 2560,
+          1080: 1920,
+          720: 1280,
+          576: 1024,
+          480: 854,
+          360: 640,
+          240: 426,
+        };
+        final boxW = resToW[res] ?? (res * 16 ~/ 9);
+        final boxH = res;
+        filters.add(
+          'scale=if(gt(iw\\,ih)\\,$boxW\\,$boxH)'
+          ':if(gt(iw\\,ih)\\,$boxH\\,$boxW)'
+          ':force_original_aspect_ratio=decrease:force_divisible_by=2',
+        );
+      }
+
+      // Framerate resampling. Only when explicitly requested: a null
+      // framerate means "preserve source timing" (important for 23.976/29.97
+      // and VFR sources — rounding and forcing CFR would corrupt them).
+      if (preset.framerate != null) {
+        filters.add('fps=${preset.framerate}');
+      }
+      if (preset.filterChain != null && preset.filterChain!.isNotEmpty) {
+        filters.add(preset.filterChain!);
       }
     }
 
-    // Resolution: fit video inside a standard 16:9 box using
-    // force_original_aspect_ratio=decrease. This means a 2.39:1 video
-    // set to "1080p" becomes 1920x800 (width=1920), NOT 1920x1080.
-    // The conditional if(gt(iw,ih),...) swaps the box for portrait sources.
-    if (preset.resolution != null && preset.resolution! > 0) {
-      final res = preset.resolution!;
-      const resToW = {
-        2160: 3840,
-        1440: 2560,
-        1080: 1920,
-        720: 1280,
-        576: 1024,
-        480: 854,
-        360: 640,
-        240: 426,
-      };
-      final boxW = resToW[res] ?? (res * 16 ~/ 9);
-      final boxH = res;
-      filters.add(
-        'scale=if(gt(iw\\,ih)\\,$boxW\\,$boxH)'
-        ':if(gt(iw\\,ih)\\,$boxH\\,$boxW)'
-        ':force_original_aspect_ratio=decrease:force_divisible_by=2',
-      );
+    // Hardware decode requires a pure hardware pipeline: hardware encoder,
+    // no filters, no subtitle burn-in. Filters need CPU-accessible frames,
+    // so mixing `-hwaccel mediacodec` with `-vf` is unreliable.
+    final useHardwareDecode = wantsHw && isHw && filters.isEmpty;
+    if (useHardwareDecode) {
+      args.addAll(['-hwaccel', 'mediacodec']);
     }
 
-    // Framerate resampling via fps filter (drops/duplicates frames)
-    if (preset.framerate != null) {
-      filters.add('fps=${preset.framerate}');
-    }
-    if (preset.filterChain != null && preset.filterChain!.isNotEmpty) {
-      filters.add(preset.filterChain!);
-    }
+    addInputSeekAndTrim();
+
+    // Playback compatibility for video outputs.
+    args.addAll([
+      '-avoid_negative_ts', 'make_zero',
+      '-max_muxing_queue_size', '1024',
+    ]);
+
     if (filters.isNotEmpty) {
       args.addAll(['-vf', filters.join(',')]);
     }
 
     // --- Video encoder ---
-    final vEnc = _resolveVideoEncoder(preset, cap);
     args.addAll(['-c:v', vEnc]);
 
-    final isHw = vEnc.endsWith('_mediacodec');
     if (vEnc != 'copy') {
       if (isHw) {
         // HW mediacodec requires explicit bitrate; CRF is not supported
-        final bitrate =
-            preset.videoBitrate ??
-            _crfToBitrate(preset.crf, task.totalDurationSeconds) ??
-            4000000;
-        args.addAll(['-b:v', '${bitrate ~/ 1000}k']);
+        final bitrateKbps = _resolveVideoBitrateKbps(preset);
+        args.addAll(['-b:v', '${bitrateKbps}k']);
       } else {
         args.addAll(['-threads', '${cap.recommendedThreadCount}']);
 
@@ -264,27 +383,32 @@ class TranscodeService {
             args.addAll(['-b:v', '0', '-row-mt', '1']);
           }
         } else if (preset.videoBitrate != null) {
-          args.addAll(['-b:v', '${preset.videoBitrate! ~/ 1000}k']);
+          // kbps value passed straight through; no unit conversion.
+          args.addAll(['-b:v', '${preset.videoBitrate}k']);
         }
 
-        // Set GOP (keyframe interval) to 2x framerate for seek-friendly output.
-        // This is critical for MKV containers to have proper seek indices.
-        if (preset.framerate != null) {
-          args.addAll(['-g', '${preset.framerate! * 2}']);
-        }
+        // Set GOP (keyframe interval) to 2x framerate for seek-friendly
+        // output. Critical for MKV containers to have proper seek indices.
+        final fps = preset.framerate ?? 30;
+        args.addAll(['-g', '${fps * 2}']);
+
+        // Broad compatibility: force 4:2:0 8-bit so players without
+        // 10-bit decode support can play the output. Skipped for MediaCodec
+        // encoders which manage their own surface format.
+        args.addAll(['-pix_fmt', 'yuv420p']);
       }
-    }
 
-    // Two-pass encoding (software only)
-    if (preset.twoPass && vEnc != 'copy' && !isHw) {
-      args.addAll([
-        '-pass',
-        isPassOne ? '1' : '2',
-        '-passlogfile',
-        passLogPrefix,
-      ]);
-      if (isPassOne) {
-        args.addAll(['-an', '-f', preset.fileExtension, '/dev/null']);
+      // Two-pass encoding (software H.264/HEVC only)
+      if (_supportsTwoPass(preset, cap)) {
+        args.addAll([
+          '-pass',
+          isPassOne ? '1' : '2',
+          '-passlogfile',
+          passLogPrefix,
+        ]);
+        if (isPassOne) {
+          args.addAll(['-an', '-f', preset.fileExtension, '/dev/null']);
+        }
       }
     }
 
@@ -300,12 +424,11 @@ class TranscodeService {
         }
       }
 
-      // Set output framerate metadata explicitly. The fps filter resamples
-      // frames, but -r ensures the container stream metadata is correct.
-      // -vsync cfr forces constant frame rate output, preventing VFR
-      // issues that cause seek problems and wrong bitrate reporting.
+      // Only force constant frame rate when the user explicitly chose one.
+      // `-fps_mode cfr` (modern alias of `-vsync cfr`) sets container
+      // metadata; the fps filter already resampled the frames.
       if (vEnc != 'copy' && preset.framerate != null) {
-        args.addAll(['-r', '${preset.framerate}', '-vsync', 'cfr']);
+        args.addAll(['-r', '${preset.framerate}', '-fps_mode', 'cfr']);
       }
 
       if (preset.faststart && preset.container == ContainerFormat.mp4) {
@@ -317,13 +440,16 @@ class TranscodeService {
     return args;
   }
 
-  /// Rough CRF → target bitrate (bps) for HW fallback when CRF is set
-  /// but the mediacodec encoder only supports bitrate mode.
-  int? _crfToBitrate(int? crf, double durationSeconds) {
-    if (crf == null) return null;
-    final base = 8000000;
-    final factor = (1 - (crf - 18) * 0.12).clamp(0.15, 1.5);
-    return (base * factor).toInt();
+  /// Total media seconds the encoder will process — used for progress
+  /// percentages. When trimming, this is the trimmed duration, not the full
+  /// source duration.
+  double _progressTotalSeconds(EncodeTask task, TranscodePreset preset) {
+    final trim = _trimDurationSeconds(
+      preset.startTime?.trim(),
+      preset.endTime?.trim(),
+    );
+    if (trim != null) return trim;
+    return task.totalDurationSeconds;
   }
 
   /// Starts an encode session. Probes duration if missing, builds args,
@@ -341,7 +467,7 @@ class TranscodeService {
     final log = _ref.read(loggerProvider);
     final probe = _ref.read(mediaProbeServiceProvider);
 
-    double totalSeconds = task.totalDurationSeconds;
+    double totalSeconds = _progressTotalSeconds(task, preset);
     if (totalSeconds <= 0) {
       try {
         final info = await probe.probe(task.sourcePath);
@@ -422,9 +548,10 @@ class TranscodeService {
       return (session, completer.future);
     }
 
-    final (initialSession, initialCompleter) = await runPass(preset.twoPass);
+    final usesTwoPass = _supportsTwoPass(preset, capability);
+    final (initialSession, initialCompleter) = await runPass(usesTwoPass);
     final Future<void> completion;
-    if (preset.twoPass) {
+    if (usesTwoPass) {
       completion = () async {
         await initialCompleter;
         final (s2, c2) = await runPass(false);

@@ -69,7 +69,6 @@ class VideoTab extends ConsumerWidget {
   /// Uses detectedResolution (smallest standard 16:9 box that fits the source)
   /// instead of raw height. A 1920x800 source returns 1080, not 800.
   int? get _originalRes => mediaInfo.detectedResolution;
-  int? get _originalFps => mediaInfo.frameRate?.round();
 
   String? get _originalAspectRatio {
     final w = mediaInfo.width;
@@ -375,21 +374,19 @@ class VideoTab extends ConsumerWidget {
                   runSpacing: 8.0,
                   children: [
                     ChoiceChip(
-                      label: Text(
-                        _originalFps != null
-                            ? '$_originalFps fps (Orig)'
-                            : 'Original',
-                      ),
-                      selected: framerate == _originalFps,
-                      onSelected: (_) => onFramerateChanged(_originalFps),
+                      // "Original" preserves the source timing exactly: a
+                      // null framerate means no fps filter and no forced CFR,
+                      // which is critical for 23.976/29.97 and VFR sources.
+                      label: const Text('Original (Preserve)'),
+                      selected: framerate == null,
+                      onSelected: (_) => onFramerateChanged(null),
                     ),
                     for (final f in fpsOptions)
-                      if (f != _originalFps)
-                        ChoiceChip(
-                          label: Text('$f fps'),
-                          selected: framerate == f,
-                          onSelected: (_) => onFramerateChanged(f),
-                        ),
+                      ChoiceChip(
+                        label: Text('$f fps'),
+                        selected: framerate == f,
+                        onSelected: (_) => onFramerateChanged(f),
+                      ),
                   ],
                 ),
               ],

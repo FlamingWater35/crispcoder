@@ -58,7 +58,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   double? _cropWidth;
   double? _cropHeight;
 
-  int? _framerate = 30;
+  int? _framerate; // null = preserve source framerate (avoid rounding)
   AudioCodec _audioCodec = AudioCodec.aac;
   int _audioBitrate = 160;
   ContainerFormat _container = ContainerFormat.mp4;
@@ -140,7 +140,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       _aspectRatio = null;
     }
 
-    _framerate = _mediaInfo?.frameRate?.round() ?? 30;
+    _framerate = null; // preserve source framerate (no forced CFR)
     _audioBitrate = _mediaInfo?.audioBitrateBitsPerSec != null
         ? _mediaInfo!.audioBitrateBitsPerSec! ~/ 1000
         : 160;
@@ -173,7 +173,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _videoPreset = preset.videoPreset ?? 'fast';
     _resolution = preset.resolution ?? _mediaInfo?.detectedResolution;
     _aspectRatio = preset.aspectRatio;
-    _framerate = preset.framerate ?? _mediaInfo?.frameRate?.round() ?? 30;
+    // null means preserve source framerate; only built-in presets that
+    // explicitly force one (e.g. Fast 1080p30) set a value here.
+    _framerate = preset.framerate;
     _audioCodec = preset.audioCodec;
     _audioBitrate = preset.audioBitrate > 0
         ? preset.audioBitrate
@@ -349,6 +351,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           startController: _startController,
           endController: _endController,
           sourcePath: _sourcePath,
+          isVideoCopy: _isVideoCopy,
           removeAudio: _removeAudio,
           onRemoveAudioChanged: (v) => setState(() => _removeAudio = v),
           subtitleTracks: mediaInfo.subtitleTracks,
@@ -359,7 +362,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         VideoTab(
           mediaInfo: mediaInfo,
           videoCodec: _videoCodec,
-          onVideoCodecChanged: (v) => setState(() => _videoCodec = v!),
+          onVideoCodecChanged: (v) => setState(() {
+            _videoCodec = v!;
+            // Video copy (passthrough) cannot burn subtitles — the video
+            // stream is not re-encoded, so no filter can render text onto it.
+            if (_videoCodec == VideoCodec.copy) {
+              _burnSubtitleIndex = null;
+            }
+          }),
           useCrf: _useCrf,
           onUseCrfChanged: (selection) =>
               setState(() => _useCrf = selection.first),
@@ -432,6 +442,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           startController: _startController,
           endController: _endController,
           sourcePath: _sourcePath,
+          isVideoCopy: _isVideoCopy,
           removeAudio: _removeAudio,
           onRemoveAudioChanged: (v) => setState(() => _removeAudio = v),
           subtitleTracks: mediaInfo.subtitleTracks,
@@ -471,6 +482,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           startController: _startController,
           endController: _endController,
           sourcePath: _sourcePath,
+          isVideoCopy: _isVideoCopy,
           removeAudio: _removeAudio,
           onRemoveAudioChanged: (v) => setState(() => _removeAudio = v),
           subtitleTracks: mediaInfo.subtitleTracks,
@@ -648,6 +660,52 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
+  /// Builds the [TranscodePreset] from the current editor state.
+  TranscodePreset _buildPreset() {
+    // Re-evaluate encoder status for submission to ensure consistency.
+    final (isUsingHw, _) = _resolveEncoderStatus();
+
+    // CRF is only valid for software encoding. If HW is used, force bitrate mode.
+    final effectiveUseCrf = !isUsingHw && _useCrf;
+
+    return TranscodePreset(
+      id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
+      name: 'Custom Encode',
+      category: 'Custom',
+      outputType: _outputType,
+      videoCodec: _videoCodec,
+      crf: !_isVideoCopy && effectiveUseCrf ? _crf : null,
+      videoBitrate: !_isVideoCopy && !effectiveUseCrf ? _videoBitrate : null,
+      videoPreset: !_isVideoCopy && effectiveUseCrf ? _videoPreset : null,
+      resolution: _isVideoCopy ? null : _resolution,
+      aspectRatio: _isVideoCopy || _hasVisualCrop ? null : _aspectRatio,
+      framerate: _isVideoCopy ? null : _framerate,
+      audioCodec: _audioCodec,
+      audioBitrate: _isAudioCopy || _removeAudio ? 0 : _audioBitrate,
+      container: _container,
+      encoderPref: _resolveEncoderPref(),
+      faststart: _faststart,
+      twoPass: false,
+      isBuiltIn: false,
+      removeAudio: _removeAudio,
+      burnSubtitleIndex: _burnSubtitleIndex,
+      startTime: _startController.text.isEmpty ? null : _startController.text,
+      endTime: _endController.text.isEmpty ? null : _endController.text,
+      cropLeft: _isVideoCopy ? null : _cropLeft,
+      cropTop: _isVideoCopy ? null : _cropTop,
+      cropWidth: _isVideoCopy ? null : _cropWidth,
+      cropHeight: _isVideoCopy ? null : _cropHeight,
+      // Captured at enqueue time so audio-copy output extension and
+      // WebM/MP4 copy-mode validation can inspect the actual source codec.
+      sourceAudioCodec: _mediaInfo?.audioCodec,
+      sourceVideoCodec: _mediaInfo?.videoCodec,
+    );
+  }
+
+  EncoderPreference _resolveEncoderPref() {
+    return ref.read(appSettingsProvider).encoderPreference;
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -676,43 +734,24 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       return;
     }
 
+    // Validate codec/container compatibility up front so the user is told
+    // about invalid combinations (e.g. WebM + H.264) instead of getting a
+    // broken file from FFmpeg.
+    final pendingPreset = _buildPreset();
+    final issues = pendingPreset.compatibilityIssues();
+    if (issues.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(issues.map((i) => i.message).join('\n')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     final settings = ref.read(appSettingsProvider);
-    final encoderPref = settings.encoderPreference;
 
-    // Re-evaluate encoder status for submission to ensure consistency
-    final (isUsingHw, _) = _resolveEncoderStatus();
-
-    // CRF is only valid for software encoding. If HW is used, force bitrate mode.
-    final effectiveUseCrf = !isUsingHw && _useCrf;
-
-    final preset = TranscodePreset(
-      id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
-      name: 'Custom Encode',
-      category: 'Custom',
-      outputType: _outputType,
-      videoCodec: _videoCodec,
-      crf: !_isVideoCopy && effectiveUseCrf ? _crf : null,
-      videoBitrate: !_isVideoCopy && !effectiveUseCrf ? _videoBitrate : null,
-      videoPreset: !_isVideoCopy && effectiveUseCrf ? _videoPreset : null,
-      resolution: _isVideoCopy ? null : _resolution,
-      aspectRatio: _isVideoCopy || _hasVisualCrop ? null : _aspectRatio,
-      framerate: _isVideoCopy ? null : _framerate,
-      audioCodec: _audioCodec,
-      audioBitrate: _isAudioCopy || _removeAudio ? 0 : _audioBitrate,
-      container: _container,
-      encoderPref: encoderPref,
-      faststart: _faststart,
-      twoPass: false,
-      isBuiltIn: false,
-      removeAudio: _removeAudio,
-      burnSubtitleIndex: _burnSubtitleIndex,
-      startTime: _startController.text.isEmpty ? null : _startController.text,
-      endTime: _endController.text.isEmpty ? null : _endController.text,
-      cropLeft: _isVideoCopy ? null : _cropLeft,
-      cropTop: _isVideoCopy ? null : _cropTop,
-      cropWidth: _isVideoCopy ? null : _cropWidth,
-      cropHeight: _isVideoCopy ? null : _cropHeight,
-    );
+    final preset = _buildPreset();
 
     final baseName = PathHelpers.sanitizeFileName(
       p.basenameWithoutExtension(sourcePath),

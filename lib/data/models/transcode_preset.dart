@@ -15,6 +15,33 @@ enum EncoderPreference { hardware, software, auto }
 /// Defines the media type to extract/transcode.
 enum OutputType { video, audio, subtitle }
 
+/// A problem with the codec/container combination that would produce an
+/// unplayable file, drop a stream, or silently mux an invalid format.
+enum CompatibilityIssue {
+  /// WebM only accepts VP8/VP9/AV1 video (or copy of such a stream).
+  webmVideoUnsupported,
+  /// WebM only accepts Opus/Vorbis audio (or copy of such a stream).
+  webmAudioUnsupported,
+  /// MP4 cannot hold Opus/Vorbis audio (or copy of such a stream).
+  mp4AudioUnsupported,
+  /// Video passthrough (copy) cannot be combined with video filters such as
+  /// crop, scale, framerate conversion, or subtitle burn-in.
+  videoCopyWithFilters;
+
+  String get message => switch (this) {
+    CompatibilityIssue.webmVideoUnsupported =>
+      'WebM requires VP9/AV1 video (or a VP8/VP9/AV1 source when copying).',
+    CompatibilityIssue.webmAudioUnsupported =>
+      'WebM requires Opus or Vorbis audio (or an Opus/Vorbis source when '
+      'copying).',
+    CompatibilityIssue.mp4AudioUnsupported =>
+      'MP4 cannot contain Opus or Vorbis audio. Choose AAC instead.',
+    CompatibilityIssue.videoCopyWithFilters =>
+      'Video copy (passthrough) cannot be combined with crop, resolution, '
+      'framerate, or subtitle burn-in settings.',
+  };
+}
+
 /// Handbrake-style preset describing the full encode pipeline.
 class TranscodePreset {
   final String id;
@@ -23,6 +50,9 @@ class TranscodePreset {
   final OutputType outputType;
   final VideoCodec videoCodec;
   final int? crf;
+  /// Target video bitrate in **kbps** (e.g. 4000 = 4000 kbps = 4 Mbps).
+  /// Only used when [crf] is null (bitrate mode). Hardware (MediaCodec)
+  /// encoders always use this value.
   final int? videoBitrate;
   final String?
   videoPreset; // e.g., 'ultrafast', 'fast', 'medium' for libx264/5
@@ -49,6 +79,15 @@ class TranscodePreset {
   final double? cropTop;
   final double? cropWidth;
   final double? cropHeight;
+
+  /// Source audio codec name (e.g. 'aac', 'opus', 'mp3') captured at enqueue
+  /// time. Used to derive a correct output extension and to validate copy
+  /// modes when [audioCodec] == [AudioCodec.copy].
+  final String? sourceAudioCodec;
+
+  /// Source video codec name (e.g. 'h264', 'hevc', 'vp9') captured at enqueue
+  /// time. Used to validate video-copy mode against the container.
+  final String? sourceVideoCodec;
 
   const TranscodePreset({
     required this.id,
@@ -78,6 +117,8 @@ class TranscodePreset {
     this.cropTop,
     this.cropWidth,
     this.cropHeight,
+    this.sourceAudioCodec,
+    this.sourceVideoCodec,
   });
 
   TranscodePreset copyWith({
@@ -108,6 +149,8 @@ class TranscodePreset {
     double? cropTop,
     double? cropWidth,
     double? cropHeight,
+    String? sourceAudioCodec,
+    String? sourceVideoCodec,
   }) {
     return TranscodePreset(
       id: id ?? this.id,
@@ -137,10 +180,18 @@ class TranscodePreset {
       cropTop: cropTop ?? this.cropTop,
       cropWidth: cropWidth ?? this.cropWidth,
       cropHeight: cropHeight ?? this.cropHeight,
+      sourceAudioCodec: sourceAudioCodec ?? this.sourceAudioCodec,
+      sourceVideoCodec: sourceVideoCodec ?? this.sourceVideoCodec,
     );
   }
 
   /// Determines the output file extension based on the selected output type.
+  ///
+  /// For audio-copy mode the extension is inferred from the source audio
+  /// codec (via [sourceAudioCodec]) instead of blindly using `.m4a`, so the
+  /// file extension always matches the actual stream. Falls back to `.mka`
+  /// (Matroska audio) when the source codec is unknown or not natively
+  /// muxable into a standalone audio container.
   String get fileExtension {
     if (outputType == OutputType.audio) {
       return switch (audioCodec) {
@@ -150,7 +201,15 @@ class TranscodePreset {
         AudioCodec.ac3 => 'ac3',
         AudioCodec.flac => 'flac',
         AudioCodec.vorbis => 'ogg',
-        AudioCodec.copy => 'm4a',
+        AudioCodec.copy => switch (sourceAudioCodec?.toLowerCase()) {
+          'aac' => 'm4a',
+          'mp3' => 'mp3',
+          'opus' => 'opus',
+          'flac' => 'flac',
+          'ac3' => 'ac3',
+          'vorbis' => 'ogg',
+          _ => 'mka',
+        },
       };
     }
     if (outputType == OutputType.subtitle) return 'srt';
@@ -159,6 +218,72 @@ class TranscodePreset {
       ContainerFormat.mkv => 'mkv',
       ContainerFormat.webm => 'webm',
     };
+  }
+
+  /// Validates the codec/container/filter combination and returns the list
+  /// of problems that would produce a broken output. An empty list means the
+  /// combination is safe to encode.
+  ///
+  /// Copy modes are checked against the source codecs (see
+  /// [sourceAudioCodec]) because passthrough preserves whatever the source
+  /// stream actually is.
+  List<CompatibilityIssue> compatibilityIssues() {
+    final issues = <CompatibilityIssue>[];
+
+    final hasVideoFilters =
+        cropWidth != null ||
+        cropHeight != null ||
+        aspectRatio != null ||
+        resolution != null ||
+        framerate != null ||
+        filterChain != null ||
+        (burnSubtitleIndex != null && burnSubtitleIndex! >= 0);
+
+    if (videoCodec == VideoCodec.copy && hasVideoFilters) {
+      issues.add(CompatibilityIssue.videoCopyWithFilters);
+    }
+
+    if (container == ContainerFormat.webm) {
+      final videoOk = switch (videoCodec) {
+        VideoCodec.vp9 || VideoCodec.av1 => true,
+        VideoCodec.copy => switch (sourceVideoCodec?.toLowerCase()) {
+          'vp8' || 'vp9' || 'av1' => true,
+          _ => false,
+        },
+        _ => false,
+      };
+      if (!videoOk) {
+        issues.add(CompatibilityIssue.webmVideoUnsupported);
+      }
+
+      final audioOk = switch (audioCodec) {
+        AudioCodec.opus || AudioCodec.vorbis => true,
+        AudioCodec.copy => switch (sourceAudioCodec?.toLowerCase()) {
+          'opus' || 'vorbis' => true,
+          _ => false,
+        },
+        _ => false,
+      };
+      if (!audioOk) {
+        issues.add(CompatibilityIssue.webmAudioUnsupported);
+      }
+    }
+
+    if (container == ContainerFormat.mp4) {
+      final audioOk = switch (audioCodec) {
+        AudioCodec.opus || AudioCodec.vorbis => false,
+        AudioCodec.copy => switch (sourceAudioCodec?.toLowerCase()) {
+          'opus' || 'vorbis' => false,
+          _ => true,
+        },
+        _ => true,
+      };
+      if (!audioOk) {
+        issues.add(CompatibilityIssue.mp4AudioUnsupported);
+      }
+    }
+
+    return issues;
   }
 }
 
@@ -199,6 +324,16 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       cropTop: r.readByte() == 1 ? r.readDouble() : null,
       cropWidth: r.readByte() == 1 ? r.readDouble() : null,
       cropHeight: r.readByte() == 1 ? r.readDouble() : null,
+      // Optional field appended at the end; absent in records written by
+      // older app versions, so only read it when bytes remain.
+      sourceAudioCodec: r.availableBytes > 0 && r.readByte() == 1
+          ? r.readString()
+          : null,
+      // Optional field appended at the end; absent in records written by
+      // older app versions, so only read it when bytes remain.
+      sourceVideoCodec: r.availableBytes > 0 && r.readByte() == 1
+          ? r.readString()
+          : null,
     );
   }
 
@@ -232,6 +367,8 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
     _writeNullableDouble(w, p.cropTop);
     _writeNullableDouble(w, p.cropWidth);
     _writeNullableDouble(w, p.cropHeight);
+    _writeNullableString(w, p.sourceAudioCodec);
+    _writeNullableString(w, p.sourceVideoCodec);
   }
 
   static void _writeNullableInt(BinaryWriter w, int? v) {

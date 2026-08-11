@@ -16,6 +16,7 @@ class QuickEditTab extends StatelessWidget {
     required this.startController,
     required this.endController,
     required this.sourcePath,
+    required this.isVideoCopy,
     required this.removeAudio,
     required this.onRemoveAudioChanged,
     required this.subtitleTracks,
@@ -31,6 +32,10 @@ class QuickEditTab extends StatelessWidget {
   final TextEditingController startController;
   final TextEditingController endController;
   final String? sourcePath;
+
+  /// Whether video passthrough (copy) is active. Burn-in requires a
+  /// re-encoded video stream, so the subtitle chips are hidden when true.
+  final bool isVideoCopy;
   final bool removeAudio;
   final void Function(bool) onRemoveAudioChanged;
   final List<SubtitleTrack> subtitleTracks;
@@ -165,26 +170,41 @@ class QuickEditTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        Text('Hardcode Subtitles (Burn-in)', style: labelStyle),
-        const SizedBox(height: 8),
-        // Subtitle Chips
-        Wrap(
-          spacing: 8.0,
-          runSpacing: 8.0,
-          children: [
-            ChoiceChip(
-              label: const Text('None'),
-              selected: burnSubtitleIndex == null,
-              onSelected: (_) => onSubtitleChanged(null),
-            ),
-            for (final sub in subtitleTracks)
-              ChoiceChip(
-                label: Text(sub.label),
-                selected: burnSubtitleIndex == sub.subtitleStreamIndex,
-                onSelected: (_) => onSubtitleChanged(sub.subtitleStreamIndex),
+        if (isVideoCopy)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Subtitle burn-in is unavailable while copying video (no '
+              're-encode). Choose a video codec to burn subtitles.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontStyle: FontStyle.italic,
               ),
-          ],
-        ),
+            ),
+          )
+        else ...[
+          Text('Hardcode Subtitles (Burn-in)', style: labelStyle),
+          const SizedBox(height: 8),
+          // Subtitle Chips
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 8.0,
+            children: [
+              ChoiceChip(
+                label: const Text('None'),
+                selected: burnSubtitleIndex == null,
+                onSelected: (_) => onSubtitleChanged(null),
+              ),
+              for (final sub in subtitleTracks)
+                ChoiceChip(
+                  label: Text(sub.label),
+                  selected: burnSubtitleIndex == sub.subtitleStreamIndex,
+                  onSelected: (_) =>
+                      onSubtitleChanged(sub.subtitleStreamIndex),
+                ),
+            ],
+          ),
+        ],
       ]);
     } else if (outputType == OutputType.subtitle) {
       editChildren.addAll([
