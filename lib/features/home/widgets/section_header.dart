@@ -71,8 +71,9 @@ class _SectionHeaderState extends State<SectionHeader>
     return InkWell(
       onTap: widget.onToggle,
       borderRadius: BorderRadius.circular(12),
+      // Generous vertical padding so the header is easy to press.
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 12, 6),
+        padding: const EdgeInsets.fromLTRB(16, 16, 12, 14),
         child: Row(
           children: [
             if (widget.icon != null) ...[

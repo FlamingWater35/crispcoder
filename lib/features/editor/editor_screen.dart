@@ -18,8 +18,8 @@ import '../preview/preview_models.dart';
 import '../preview/preview_screen.dart';
 import 'widgets/editor_action_bar.dart';
 import 'widgets/editor_error_view.dart';
+import 'widgets/editor_welcome_view.dart';
 import 'widgets/media_info_card.dart';
-import 'widgets/source_picker.dart';
 import 'widgets/tabs/audio_tab.dart';
 import 'widgets/tabs/output_tab.dart';
 import 'widgets/tabs/quick_edit_tab.dart';
@@ -268,49 +268,85 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      if (_mediaInfo != null) ...[
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                          child: MediaInfoCard(info: _mediaInfo!),
-                        ),
-                        Expanded(
-                          child: _buildTabs(
-                            presets,
-                            isUsingHw,
-                            encoderFeedback,
-                          ),
-                        ),
-                      ] else ...[
-                        Expanded(
-                          child: Center(
-                            child: SingleChildScrollView(
-                              padding: const EdgeInsets.all(24.0),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _buildModeSelector(),
-                                  const SizedBox(height: 32),
-                                  SourcePicker(
-                                    path: _sourcePath,
+                      // AnimatedSwitcher slides between the welcome (no
+                      // source) and the editor (source loaded) views.
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 350),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          transitionBuilder: (child, animation) {
+                            final offset = Tween<Offset>(
+                              begin: const Offset(0.08, 0),
+                              end: Offset.zero,
+                            ).animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.easeOutCubic,
+                              ),
+                            );
+                            return FadeTransition(
+                              opacity: animation,
+                              child: SlideTransition(
+                                position: offset,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _mediaInfo != null
+                              ? Column(
+                                  key: const ValueKey('editor-loaded'),
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        16,
+                                        16,
+                                        8,
+                                      ),
+                                      child: MediaInfoCard(info: _mediaInfo!),
+                                    ),
+                                    Expanded(
+                                      child: _buildTabs(
+                                        presets,
+                                        isUsingHw,
+                                        encoderFeedback,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : SizedBox.expand(
+                                  key: const ValueKey('editor-welcome'),
+                                  child: EditorWelcomeView(
+                                    outputType: _outputType,
+                                    onOutputTypeChanged: (type) {
+                                      setState(() {
+                                        _outputType = type;
+                                        if (type != OutputType.video) {
+                                          _removeAudio = false;
+                                        }
+                                      });
+                                    },
                                     probing: _probing,
                                     onPick: _pickSource,
                                   ),
-                                ],
-                              ),
-                            ),
-                          ),
+                                ),
                         ),
-                      ],
+                      ),
                     ],
                   ),
                 ),
               ),
-        bottomNavigationBar: EditorActionBar(
-          canSubmit: _canSubmit,
-          hasSource: _sourcePath != null,
-          onPreview: _openPreview,
-          onSubmit: _submit,
-        ),
+        // The action bar (Preview / Start Encode) only makes sense once a
+        // source video is picked — hide it entirely in the initial view.
+        bottomNavigationBar: _sourcePath == null
+            ? null
+            : EditorActionBar(
+                canSubmit: _canSubmit,
+                hasSource: _sourcePath != null,
+                onPreview: _openPreview,
+                onSubmit: _submit,
+              ),
       ),
     );
   }
@@ -503,53 +539,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             tabs: tabs,
           ),
           Expanded(child: TabBarView(children: tabViews)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModeSelector() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Select Output Mode',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<OutputType>(
-            segments: const [
-              ButtonSegment(
-                value: OutputType.video,
-                label: Text('Video'),
-                icon: Icon(Icons.movie),
-              ),
-              ButtonSegment(
-                value: OutputType.audio,
-                label: Text('Audio'),
-                icon: Icon(Icons.music_note),
-              ),
-              ButtonSegment(
-                value: OutputType.subtitle,
-                label: Text('Subtitles'),
-                icon: Icon(Icons.subtitles),
-              ),
-            ],
-            selected: {_outputType},
-            onSelectionChanged: (selection) {
-              setState(() {
-                _outputType = selection.first;
-                if (_outputType != OutputType.video) {
-                  _removeAudio = false;
-                }
-              });
-            },
-          ),
         ],
       ),
     );

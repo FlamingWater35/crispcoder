@@ -123,9 +123,14 @@ abstract final class AppTheme {
       systemOverlayStyle: brightness == Brightness.dark
           ? SystemUiOverlayStyle.light
           : SystemUiOverlayStyle.dark,
-      titleTextStyle: base.textTheme.headlineMedium?.copyWith(
+      titleTextStyle: base.textTheme.headlineLarge?.copyWith(
+        // Explicit size: at theme-build time the textTheme styles have no
+        // fontSize (the M3 sizes are applied via runtime text geometry, which
+        // does not reach the AppBar's titleTextStyle). Baking the size in
+        // guarantees the title is actually rendered at the chosen size.
+        fontSize: 26,
         fontWeight: FontWeight.w700,
-        letterSpacing: -0.25,
+        letterSpacing: -0.3,
         color: scheme.onSurface,
       ),
     );
