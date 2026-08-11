@@ -276,15 +276,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           switchInCurve: Curves.easeOutCubic,
                           switchOutCurve: Curves.easeInCubic,
                           transitionBuilder: (child, animation) {
-                            final offset = Tween<Offset>(
-                              begin: const Offset(0.08, 0),
-                              end: Offset.zero,
-                            ).animate(
-                              CurvedAnimation(
-                                parent: animation,
-                                curve: Curves.easeOutCubic,
-                              ),
-                            );
+                            final offset =
+                                Tween<Offset>(
+                                  begin: const Offset(0.08, 0),
+                                  end: Offset.zero,
+                                ).animate(
+                                  CurvedAnimation(
+                                    parent: animation,
+                                    curve: Curves.easeOutCubic,
+                                  ),
+                                );
                             return FadeTransition(
                               opacity: animation,
                               child: SlideTransition(
@@ -298,11 +299,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                                   key: const ValueKey('editor-loaded'),
                                   children: [
                                     Padding(
+                                      // Extra bottom padding separates the
+                                      // source file details from the editor
+                                      // sections bar below.
                                       padding: const EdgeInsets.fromLTRB(
                                         16,
                                         16,
                                         16,
-                                        8,
+                                        14,
                                       ),
                                       child: MediaInfoCard(info: _mediaInfo!),
                                     ),
@@ -366,22 +370,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         const Tab(
           text: 'Quick Edit',
           icon: Icon(Icons.bolt_rounded, size: 18),
-          height: 42,
+          height: 50,
         ),
         const Tab(
           text: 'Video',
           icon: Icon(Icons.videocam_outlined, size: 18),
-          height: 42,
+          height: 50,
         ),
         const Tab(
           text: 'Audio',
           icon: Icon(Icons.music_note_outlined, size: 18),
-          height: 42,
+          height: 50,
         ),
         const Tab(
           text: 'Output',
           icon: Icon(Icons.output_rounded, size: 18),
-          height: 42,
+          height: 50,
         ),
       ]);
       tabViews.addAll([
@@ -478,12 +482,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         const Tab(
           text: 'Quick Edit',
           icon: Icon(Icons.bolt_rounded, size: 18),
-          height: 42,
+          height: 50,
         ),
         const Tab(
           text: 'Audio',
           icon: Icon(Icons.music_note_outlined, size: 18),
-          height: 42,
+          height: 50,
         ),
       ]);
       tabViews.addAll([
@@ -529,7 +533,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         const Tab(
           text: 'Subtitles',
           icon: Icon(Icons.subtitles_outlined, size: 18),
-          height: 42,
+          height: 50,
         ),
       );
       tabViews.add(
