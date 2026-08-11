@@ -51,8 +51,9 @@ void main() {
     expect(find.text('CrispCoder'), findsWidgets);
   });
 
-  testWidgets('navigating between tabs does not throw duplicate-hero errors',
-      (WidgetTester tester) async {
+  testWidgets('navigating between tabs does not throw duplicate-hero errors', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const ProviderScope(child: CrispCoderApp()));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
@@ -87,8 +88,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('About card shows the new subtitle and opens the licenses page',
-      (WidgetTester tester) async {
+  testWidgets('About card shows the new subtitle and opens the licenses page', (
+    WidgetTester tester,
+  ) async {
+    // Tall viewport so the entire Settings list renders without scrolling.
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     await tester.pumpWidget(const ProviderScope(child: CrispCoderApp()));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
@@ -98,9 +105,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    // Scroll to the About card and check the new subtitle.
-    await tester.scrollUntilVisible(find.text('A transcoder powered by FFmpeg'), 300);
-    expect(find.text('A transcoder powered by FFmpeg'), findsOneWidget);
+    expect(
+      find.text('Multipurpose video transcoder for Android'),
+      findsOneWidget,
+    );
 
     // Tapping opens the licenses page (showLicensePage).
     await tester.tap(find.text('A transcoder powered by FFmpeg'));
