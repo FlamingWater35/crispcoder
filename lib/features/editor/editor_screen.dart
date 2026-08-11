@@ -363,10 +363,26 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     if (_outputType == OutputType.video) {
       tabs.addAll([
-        const Tab(text: 'Quick Edit'),
-        const Tab(text: 'Video'),
-        const Tab(text: 'Audio'),
-        const Tab(text: 'Output'),
+        const Tab(
+          text: 'Quick Edit',
+          icon: Icon(Icons.bolt_rounded, size: 18),
+          height: 42,
+        ),
+        const Tab(
+          text: 'Video',
+          icon: Icon(Icons.videocam_outlined, size: 18),
+          height: 42,
+        ),
+        const Tab(
+          text: 'Audio',
+          icon: Icon(Icons.music_note_outlined, size: 18),
+          height: 42,
+        ),
+        const Tab(
+          text: 'Output',
+          icon: Icon(Icons.output_rounded, size: 18),
+          height: 42,
+        ),
       ]);
       tabViews.addAll([
         QuickEditTab(
@@ -458,7 +474,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
       ]);
     } else if (_outputType == OutputType.audio) {
-      tabs.addAll([const Tab(text: 'Quick Edit'), const Tab(text: 'Audio')]);
+      tabs.addAll([
+        const Tab(
+          text: 'Quick Edit',
+          icon: Icon(Icons.bolt_rounded, size: 18),
+          height: 42,
+        ),
+        const Tab(
+          text: 'Audio',
+          icon: Icon(Icons.music_note_outlined, size: 18),
+          height: 42,
+        ),
+      ]);
       tabViews.addAll([
         QuickEditTab(
           presets: presets,
@@ -498,7 +525,13 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
       ]);
     } else if (_outputType == OutputType.subtitle) {
-      tabs.add(const Tab(text: 'Subtitles'));
+      tabs.add(
+        const Tab(
+          text: 'Subtitles',
+          icon: Icon(Icons.subtitles_outlined, size: 18),
+          height: 42,
+        ),
+      );
       tabViews.add(
         QuickEditTab(
           presets: presets,
@@ -534,37 +567,51 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       length: tabs.length,
       child: Column(
         children: [
-          // Styled tab bar: a rounded secondary-container "pill" that makes
-          // the loaded editor state visually distinct from the welcome view.
+          // Styled tab bar: a rounded pill that hugs its content width (and
+          // stays centered), or fills the row when the tabs are too wide.
           Padding(
-            // Minimal bottom padding so the bar sits close to the options
-            // below it.
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
-            child: Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: TabBar(
-                isScrollable: true,
-                tabAlignment: TabAlignment.start,
-                dividerColor: Colors.transparent,
-                indicatorSize: TabBarIndicatorSize.tab,
-                indicator: BoxDecoration(
-                  color: theme.colorScheme.secondaryContainer,
-                  borderRadius: BorderRadius.circular(10),
+            // Minimal vertical padding so the bar is compact.
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+            child: Align(
+              alignment: Alignment.center,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: theme.colorScheme.shadow.withValues(alpha: 0.05),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                // Rounded focus/selection highlight.
-                splashBorderRadius: BorderRadius.circular(10),
-                labelColor: theme.colorScheme.onSecondaryContainer,
-                unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-                labelStyle: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
+                // IntrinsicWidth makes the pill shrink to the TabBar's content
+                // width instead of stretching full-width.
+                child: IntrinsicWidth(
+                  child: TabBar(
+                    isScrollable: true,
+                    // Centers the tabs when they fit; scrolls when overflow.
+                    tabAlignment: TabAlignment.center,
+                    dividerColor: Colors.transparent,
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    indicator: BoxDecoration(
+                      color: theme.colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    // Rounded focus/selection highlight.
+                    splashBorderRadius: BorderRadius.circular(9),
+                    labelColor: theme.colorScheme.onSecondaryContainer,
+                    unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+                    labelStyle: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                    unselectedLabelStyle: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                    tabs: tabs,
+                  ),
                 ),
-                unselectedLabelStyle: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
-                tabs: tabs,
               ),
             ),
           ),

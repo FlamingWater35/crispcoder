@@ -139,6 +139,9 @@ class QuickEditTab extends StatelessWidget {
           icon: const Icon(Icons.content_cut_rounded),
           label: const Text('Trim Visually'),
           onPressed: sourcePath != null ? onTrimPreview : null,
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
         ),
       ),
     ];
@@ -156,8 +159,16 @@ class QuickEditTab extends StatelessWidget {
             side: BorderSide(color: theme.colorScheme.outlineVariant),
           ),
           child: SwitchListTile(
-            title: const Text('Remove Audio'),
-            subtitle: const Text('Strip the audio track from the output'),
+            title: Text(
+              'Remove Audio',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              'Strip the audio track from the output',
+              style: theme.textTheme.bodySmall,
+            ),
             value: removeAudio,
             onChanged: onRemoveAudioChanged,
             contentPadding: const EdgeInsets.symmetric(

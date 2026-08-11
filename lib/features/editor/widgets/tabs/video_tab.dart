@@ -296,6 +296,9 @@ class VideoTab extends ConsumerWidget {
                       hasVisualCrop ? 'Edit Visual Crop' : 'Crop Visually',
                     ),
                     onPressed: onCropEditor,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
                   ),
                 ),
                 if (hasVisualCrop)

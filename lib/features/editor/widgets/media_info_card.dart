@@ -25,14 +25,46 @@ List<String> _friendlyContainers(String? raw, {int max = 3}) {
 ///
 /// Every stat — resolution, duration, video, audio, and container — is a
 /// uniform small raised card, so the section reads as one coherent grid.
-class MediaInfoCard extends StatelessWidget {
+/// Tapping the header collapses/expands the stats to save vertical space.
+class MediaInfoCard extends StatefulWidget {
   const MediaInfoCard({super.key, required this.info});
   final MediaInfo info;
 
   @override
+  State<MediaInfoCard> createState() => _MediaInfoCardState();
+}
+
+class _MediaInfoCardState extends State<MediaInfoCard> {
+  // Collapsed by default so the loaded editor shows the tabs without the
+  // stats taking up vertical space.
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final containers = _friendlyContainers(info.container);
+    final containers = _friendlyContainers(widget.info.container);
+    final stats = [
+      _StatCard(
+        icon: Icons.aspect_ratio_outlined,
+        label: 'Resolution',
+        value: widget.info.resolutionLabel,
+      ),
+      _StatCard(
+        icon: Icons.timer_outlined,
+        label: 'Duration',
+        value: widget.info.durationLabel,
+      ),
+      _StatCard(
+        icon: Icons.videocam_outlined,
+        label: 'Video',
+        value: widget.info.videoCodec ?? '—',
+      ),
+      _StatCard(
+        icon: Icons.graphic_eq_outlined,
+        label: 'Audio',
+        value: widget.info.audioCodec ?? '—',
+      ),
+    ];
 
     return Card(
       elevation: 0,
@@ -41,71 +73,87 @@ class MediaInfoCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
       ),
-      child: Padding(
-        // Generous bottom padding so the source details section breathes
-        // before the editing tabs below.
-        padding: const EdgeInsets.fromLTRB(12, 16, 12, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Source details',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.2,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Tappable header row.
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 10, 10),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 20, color: scheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Source File Details',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.0 : 0.5,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                // Two stat cards per row on narrow screens, three on wide.
-                final perRow = constraints.maxWidth >= 380 ? 3 : 2;
-                final gap = 8.0;
-                final width = (constraints.maxWidth - (perRow - 1) * gap) /
-                    perRow;
-                final stats = [
-                  _StatCard(
-                    icon: Icons.aspect_ratio_outlined,
-                    label: 'Resolution',
-                    value: info.resolutionLabel,
-                  ),
-                  _StatCard(
-                    icon: Icons.timer_outlined,
-                    label: 'Duration',
-                    value: info.durationLabel,
-                  ),
-                  _StatCard(
-                    icon: Icons.videocam_outlined,
-                    label: 'Video',
-                    value: info.videoCodec ?? '—',
-                  ),
-                  _StatCard(
-                    icon: Icons.graphic_eq_outlined,
-                    label: 'Audio',
-                    value: info.audioCodec ?? '—',
-                  ),
-                ];
-                return Wrap(
-                  spacing: gap,
-                  runSpacing: gap,
-                  children: [
-                    for (final card in stats)
-                      SizedBox(width: width, child: card),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            // Container as a uniform stat card (up to 3 badges inside).
-            _StatCard(
-              icon: Icons.folder_outlined,
-              label: 'Container',
-              value: containers.isEmpty
-                  ? '—'
-                  : containers.join(' · '),
-            ),
-          ],
-        ),
+          ),
+          // Animated expand/collapse of the stats.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _expanded
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Two stat cards per row on narrow screens, three
+                            // on wide.
+                            final perRow =
+                                constraints.maxWidth >= 380 ? 3 : 2;
+                            final gap = 8.0;
+                            final width =
+                                (constraints.maxWidth - (perRow - 1) * gap) /
+                                perRow;
+                            return Wrap(
+                              spacing: gap,
+                              runSpacing: gap,
+                              children: [
+                                for (final card in stats)
+                                  SizedBox(width: width, child: card),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        // Container as a uniform stat card.
+                        _StatCard(
+                          icon: Icons.folder_outlined,
+                          label: 'Container',
+                          value: containers.isEmpty
+                              ? '—'
+                              : containers.join(' · '),
+                        ),
+                      ],
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
       ),
     );
   }

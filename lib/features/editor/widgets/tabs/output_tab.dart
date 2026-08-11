@@ -76,14 +76,36 @@ class OutputTab extends StatelessWidget {
           ),
           if (container == ContainerFormat.mp4) ...[
             const SizedBox(height: 16),
-            SwitchListTile(
-              title: const Text('Faststart (Web Optimized)'),
-              subtitle: const Text(
-                'Move moov atom to file start for streaming',
+            // Same card treatment as the Remove Audio option for visual
+            // consistency.
+            Card(
+              elevation: 0,
+              color: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12.0),
+                side: BorderSide(color: theme.colorScheme.outlineVariant),
               ),
-              value: faststart,
-              onChanged: onFaststartChanged,
-              contentPadding: EdgeInsets.zero,
+              child: SwitchListTile(
+                title: Text(
+                  'Faststart (Web Optimized)',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  'Move moov atom to file start for streaming',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                value: faststart,
+                onChanged: onFaststartChanged,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 4.0,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.0),
+                ),
+              ),
             ),
           ],
         ],

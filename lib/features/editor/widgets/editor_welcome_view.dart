@@ -120,14 +120,14 @@ class EditorWelcomeView extends StatelessWidget {
               ).animate(
                 key: ValueKey('mode-selector'),
               ).fadeIn(
-                delay: 150.ms,
-                duration: 400.ms,
+                delay: 100.ms,
+                duration: 250.ms,
                 curve: Curves.easeOut,
               ).slideY(
                 begin: 0.12,
                 end: 0,
-                delay: 150.ms,
-                duration: 400.ms,
+                delay: 100.ms,
+                duration: 250.ms,
                 curve: Curves.easeOutCubic,
               ),
               const SizedBox(height: 32),
