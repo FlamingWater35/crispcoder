@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
@@ -13,6 +15,7 @@ import 'data/repositories/preset_repository.dart';
 import 'data/repositories/queue_repository.dart';
 import 'data/services/foreground_service_wrapper.dart';
 import 'data/services/notification_service.dart';
+import 'data/services/permission_service.dart';
 import 'data/services/update_service.dart';
 import 'features/logs/logs_screen.dart';
 
@@ -92,6 +95,12 @@ Future<void> main() async {
   }
 
   runApp(const ProviderScope(child: CrispCoderApp()));
+
+  // Request boot permissions (media read + notifications) as soon as the UI
+  // is up. Deliberately fire-and-forget: the requests surface the OS dialogs
+  // without blocking first paint, and both permissions can also be granted
+  // later (file picker re-requests media read; Settings has both).
+  unawaited(PermissionService().requestBootPermissions());
 }
 
 /// Runs a repository bootstrap, logging instead of throwing so one failing

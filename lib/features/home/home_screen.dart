@@ -30,6 +30,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _queueExpanded = true;
   bool _completedExpanded = true;
+  bool _failedExpanded = true;
 
   Future<void> _openEditor(BuildContext context) async {
     await Navigator.of(
@@ -43,7 +44,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final hasFinished = queue.any(
       (t) =>
           t.status == EncodeStatus.completed ||
-          t.status == EncodeStatus.cancelled,
+          t.status == EncodeStatus.cancelled ||
+          t.status == EncodeStatus.failed,
     );
 
     final runningCount = queue
@@ -59,6 +61,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final completedCount = queue
         .where((t) => t.status == EncodeStatus.completed)
         .length;
+    final failedCount = queue
+        .where(
+          (t) =>
+              t.status == EncodeStatus.failed ||
+              t.status == EncodeStatus.cancelled,
+        )
+        .length;
 
     final pending = queue
         .where(
@@ -72,6 +81,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         .toList()
       // Newest completions first: `finishedAt` reflects when the encode
       // actually finished (createdAt is the enqueue time).
+      ..sort(
+        (a, b) => (b.finishedAt ?? b.createdAt).compareTo(
+          a.finishedAt ?? a.createdAt,
+        ),
+      );
+    final failed = queue
+        .where(
+          (t) =>
+              t.status == EncodeStatus.failed ||
+              t.status == EncodeStatus.cancelled,
+        )
+        .toList()
       ..sort(
         (a, b) => (b.finishedAt ?? b.createdAt).compareTo(
           a.finishedAt ?? a.createdAt,
@@ -105,6 +126,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       running: runningCount,
                       queued: queuedCount,
                       completed: completedCount,
+                      failed: failedCount,
                     ),
                     const SizedBox(height: 24),
                     EmptyQueueState(
@@ -120,6 +142,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       running: runningCount,
                       queued: queuedCount,
                       completed: completedCount,
+                      failed: failedCount,
                     ),
                     const ActiveEncodeCard(),
                     if (pending.isNotEmpty && runningCount == 0) ...[
@@ -216,6 +239,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     ).animate(
                                       key: ValueKey(
                                         'completed-${completed[i].id}',
+                                      ),
+                                    ).fadeIn(
+                                      delay: (i * 70).ms,
+                                      duration: 320.ms,
+                                      curve: Curves.easeOut,
+                                    ).slideY(
+                                      begin: 0.12,
+                                      end: 0,
+                                      delay: (i * 70).ms,
+                                      duration: 320.ms,
+                                      curve: Curves.easeOutCubic,
+                                    ),
+                                ],
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                    if (failed.isNotEmpty) ...[
+                      SectionHeader(
+                        title: 'Failed / Cancelled',
+                        count: failed.length,
+                        icon: Icons.error_outline_rounded,
+                        isExpanded: _failedExpanded,
+                        onToggle: () => setState(
+                          () => _failedExpanded = !_failedExpanded,
+                        ),
+                      ),
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment.topCenter,
+                        child: _failedExpanded
+                            ? Column(
+                                children: [
+                                  for (var i = 0; i < failed.length; i++)
+                                    QueueTile(
+                                      key: ValueKey(failed[i].id),
+                                      task: failed[i],
+                                      onRemove: () => ref
+                                          .read(queueProvider.notifier)
+                                          .remove(failed[i].id),
+                                    ).animate(
+                                      key: ValueKey(
+                                        'failed-${failed[i].id}',
                                       ),
                                     ).fadeIn(
                                       delay: (i * 70).ms,

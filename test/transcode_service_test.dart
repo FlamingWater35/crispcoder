@@ -17,6 +17,7 @@ TranscodePreset _preset({
   EncoderPreference encoderPref = EncoderPreference.software,
   int? burnSubtitleIndex,
   bool removeAudio = false,
+  String? sourceAudioCodec,
 }) {
   return TranscodePreset(
     id: 't1',
@@ -35,6 +36,7 @@ TranscodePreset _preset({
     endTime: endTime,
     burnSubtitleIndex: burnSubtitleIndex,
     removeAudio: removeAudio,
+    sourceAudioCodec: sourceAudioCodec,
   );
 }
 
@@ -42,12 +44,13 @@ EncodeTask _task({
   TranscodePreset? preset,
   double duration = 100,
   double? sourceFrameRate,
+  String outputPath = '/tmp/output.mp4',
 }) {
   return EncodeTask(
     id: 'task1',
     sourcePath: '/tmp/input.mp4',
     sourceName: 'input.mp4',
-    outputPath: '/tmp/output.mp4',
+    outputPath: outputPath,
     preset: preset ?? _preset(),
     createdAt: DateTime(2024, 1, 1),
     totalDurationSeconds: duration,
@@ -368,6 +371,72 @@ void main() {
       expect(args, contains('-f'));
       expect(args[args.indexOf('-f') + 1], 'mp3');
       expect(args[args.indexOf('-c:a') + 1], 'libmp3lame');
+    });
+
+    test('audio opus uses the ogg muxer, not an invalid -f opus', () {
+      final preset = _preset(
+        audioCodec: AudioCodec.opus,
+      ).copyWith(outputType: OutputType.audio);
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset, outputPath: '/tmp/output.opus'),
+        preset: preset,
+        cap: _cap,
+      );
+
+      // .opus extension but the muxer must be ogg (Opus lives in Ogg).
+      expect(args.last, '/tmp/output.opus');
+      expect(args, contains('-f'));
+      expect(args[args.indexOf('-f') + 1], 'ogg');
+      expect(args[args.indexOf('-c:a') + 1], 'libopus');
+      // The invalid standalone `opus` muxer must never be emitted.
+      expect(args, isNot(contains('opus')));
+    });
+
+    test('audio copy from aac source produces -f ipod (m4a)', () {
+      final preset = _preset(audioCodec: AudioCodec.copy, sourceAudioCodec: 'aac')
+          .copyWith(outputType: OutputType.audio);
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset, outputPath: '/tmp/output.m4a'),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args.last, '/tmp/output.m4a');
+      expect(args, contains('-f'));
+      expect(args[args.indexOf('-f') + 1], 'ipod');
+      expect(args[args.indexOf('-c:a') + 1], 'copy');
+    });
+
+    test('audio copy from unknown source produces -f matroska (mka)', () {
+      final preset = _preset(audioCodec: AudioCodec.copy, sourceAudioCodec: 'dts')
+          .copyWith(outputType: OutputType.audio);
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset, outputPath: '/tmp/output.mka'),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args.last, '/tmp/output.mka');
+      expect(args, contains('-f'));
+      expect(args[args.indexOf('-f') + 1], 'matroska');
+    });
+
+    test('audio mode never produces a .mp4 extension', () {
+      for (final codec in AudioCodec.values) {
+        final preset = _preset(audioCodec: codec, sourceAudioCodec: 'aac')
+            .copyWith(outputType: OutputType.audio);
+        final args = service.buildCommandArgs(
+          task: _task(
+            preset: preset,
+            outputPath: '/tmp/output.${preset.fileExtension}',
+          ),
+          preset: preset,
+          cap: _cap,
+        );
+        expect(args.last, isNot(endsWith('.mp4')));
+        // The generic mp4 muxer must never be chosen for audio extraction.
+        expect(args, isNot(contains('mp4')));
+      }
     });
 
     test('subtitle extraction forces the srt muxer', () {

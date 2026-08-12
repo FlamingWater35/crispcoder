@@ -96,6 +96,40 @@ void main() {
     expect(restored?.startedAt, isNull);
   });
 
+  test('clearCompleted removes completed, cancelled, and failed tasks', () async {
+    final repo = QueueRepository.instance;
+    await repo.bootstrap();
+
+    await repo.upsert(task(id: 'pending', status: EncodeStatus.pending));
+    await repo.upsert(task(id: 'done', status: EncodeStatus.completed));
+    await repo.upsert(task(id: 'cancelled', status: EncodeStatus.cancelled));
+    await repo.upsert(task(id: 'failed', status: EncodeStatus.failed));
+
+    await repo.clearCompleted();
+
+    // Finished tasks are gone; pending survives.
+    expect(repo.byId('done'), isNull);
+    expect(repo.byId('cancelled'), isNull);
+    expect(repo.byId('failed'), isNull);
+    expect(repo.byId('pending'), isNotNull);
+    expect(repo.all.length, 1);
+  });
+
+  test('clearCompleted keeps paused and running tasks', () async {
+    final repo = QueueRepository.instance;
+    await repo.bootstrap();
+
+    await repo.upsert(task(id: 'paused', status: EncodeStatus.paused));
+    await repo.upsert(task(id: 'running', status: EncodeStatus.running));
+    await repo.upsert(task(id: 'failed', status: EncodeStatus.failed));
+
+    await repo.clearCompleted();
+
+    expect(repo.byId('paused'), isNotNull);
+    expect(repo.byId('running'), isNotNull);
+    expect(repo.byId('failed'), isNull);
+  });
+
   test('bootstrap deletes partial output of crashed running tasks', () async {
     final repo = QueueRepository.instance;
     await repo.bootstrap();

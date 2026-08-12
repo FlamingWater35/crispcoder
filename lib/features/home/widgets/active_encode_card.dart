@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/models/encode_progress.dart';
 import '../../../data/models/encode_task.dart';
+import '../../../data/models/transcode_preset.dart';
 import '../../../providers/active_encode_provider.dart';
 import '../../../providers/queue_provider.dart';
 
@@ -142,7 +143,7 @@ class _RunningSpotlight extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    task.sourceName ?? task.sourcePath.split('/').last,
+                    task.displayTitle,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -163,13 +164,16 @@ class _RunningSpotlight extends StatelessWidget {
                     // gets its own chip with a distinct accent color.
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final cards = [
-                          _StatCard(
-                            icon: Icons.speed_rounded,
-                            label: 'FPS',
-                            value: progress!.formattedFps,
-                            color: scheme.primary,
-                          ),
+                        final cards = <_StatCard>[
+                          // FPS only makes sense for video transcodes;
+                          // extractions report 0 fps and would show "—".
+                          if (task.preset.outputType == OutputType.video)
+                            _StatCard(
+                              icon: Icons.speed_rounded,
+                              label: 'FPS',
+                              value: progress!.formattedFps,
+                              color: scheme.primary,
+                            ),
                           _StatCard(
                             icon: Icons.fast_forward_rounded,
                             label: 'Speed',
@@ -257,7 +261,7 @@ class _IdleState extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  task!.sourceName ?? task!.sourcePath.split('/').last,
+                  task!.displayTitle,
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w500,
                   ),

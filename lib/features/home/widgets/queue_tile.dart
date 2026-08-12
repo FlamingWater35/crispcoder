@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../core/utils/format_parsers.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../data/models/encode_task.dart';
+import '../../../data/models/transcode_preset.dart';
 import '../../../data/services/gallery_service.dart';
 import '../../../providers/active_encode_provider.dart';
 
@@ -41,10 +43,18 @@ class _QueueTileState extends ConsumerState<QueueTile> {
     // Use sourceName to avoid showing long cache file_picker paths
     final sourceDisplay = task.sourceName ?? task.sourcePath;
 
-    // If output path is in the cache directory, it means it was moved to the gallery
-    final isOutputInCache = task.outputPath.contains('/cache/');
-    final outputDisplay = isOutputInCache
-        ? 'Saved to Device Gallery'
+    // Only show the publish location when the output was actually published
+    // via MediaStore — gate on the persisted URI, not just savedToGallery
+    // (records from the old Gal→Pictures era set that flag without a
+    // MediaStore entry). Audio publishes to Music/CrispCoder (the Audio
+    // collection rejects DCIM); video/subtitle publish to DCIM/Videolation.
+    // Show the published basename so the name/duplicate problem is easy to
+    // spot. Unpublished outputs show the real path.
+    final publishedDir = task.preset.outputType == OutputType.audio
+        ? 'Music/CrispCoder'
+        : 'DCIM/Videolation';
+    final outputDisplay = task.publishedUri != null
+        ? 'Saved to $publishedDir (${p.basename(task.outputPath)})'
         : task.outputPath;
 
     return Padding(
@@ -95,10 +105,28 @@ class _QueueTileState extends ConsumerState<QueueTile> {
     );
   }
 
-  /// Shares the completed output file. If the file no longer exists (e.g.
-  /// the cache was cleared before this app version protected it), surface a
-  /// clear message instead of silently doing nothing.
+  /// Shares the completed output file. When the output was published to
+  /// MediaStore (DCIM/Videolation), share the persisted content:// URI —
+  /// the private copy is deleted after publish, so the URI is the only
+  /// remaining handle. Otherwise share the raw file path if it still exists.
   Future<void> _shareOutput(BuildContext context, EncodeTask task) async {
+    if (task.publishedUri != null) {
+      final ok = await ref
+          .read(galleryServiceProvider)
+          .share(task.publishedUri!, subject: task.displayTitle);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not share the published file — the MediaStore entry '
+              'may have been removed.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final file = File(task.outputPath);
     if (!await file.exists()) {
       if (!context.mounted) return;
@@ -114,7 +142,7 @@ class _QueueTileState extends ConsumerState<QueueTile> {
     }
     await ref
         .read(galleryServiceProvider)
-        .share(task.outputPath, subject: task.sourceName);
+        .share(task.outputPath, subject: task.displayTitle);
   }
 
   @override
@@ -160,7 +188,12 @@ class _QueueTileState extends ConsumerState<QueueTile> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      task.sourceName ?? task.sourcePath.split('/').last,
+                      // Title is the canonical artifact name: video shows the
+                      // source, extractions show the output basename (e.g.
+                      // "MySong_encoded.m4a") so a running audio job never
+                      // shows as "Song.mp4". The Source row in the details
+                      // panel still truthfully shows the source file.
+                      task.displayTitle,
                       style: theme.textTheme.titleMedium,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -214,7 +247,10 @@ class _QueueTileState extends ConsumerState<QueueTile> {
                       label: progress.formattedPercent,
                       emphasized: true,
                     ),
-                    _Meta(label: progress.formattedFps),
+                    // FPS only makes sense for video transcodes; extractions
+                    // report 0 fps and would show "—".
+                    if (task.preset.outputType == OutputType.video)
+                      _Meta(label: progress.formattedFps),
                     _Meta(label: progress.formattedSpeed),
                     _Meta(label: 'ETA ${progress.formattedEta}'),
                     _Meta(label: progress.formattedBitrate),

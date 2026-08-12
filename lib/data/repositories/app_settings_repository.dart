@@ -84,4 +84,24 @@ class AppSettingsRepository {
       // Best-effort write
     }
   }
+
+  /// Whether the legacy `file_picker` package is used for source selection.
+  /// Default false: the built-in native picker (SAF) is used, which recovers
+  /// the original filename via OpenableColumns.DISPLAY_NAME.
+  bool get useFilePickerPackage {
+    try {
+      return _box.get(AppConstants.keyUseFilePickerPackage) as bool? ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Persists the source-picker preference.
+  Future<void> setUseFilePickerPackage(bool value) async {
+    try {
+      await _box.put(AppConstants.keyUseFilePickerPackage, value);
+    } catch (_) {
+      // Best-effort write
+    }
+  }
 }

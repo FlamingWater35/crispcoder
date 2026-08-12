@@ -67,7 +67,11 @@ class MediaProbeService {
 
       return MediaInfo(
         path: path,
-        duration: duration == null ? null : Duration(seconds: duration.toInt()),
+        // Millisecond precision: whole-second truncation skewed progress
+        // percentages, ETA and trim edge cases for short clips.
+        duration: duration == null
+            ? null
+            : Duration(milliseconds: (duration * 1000).round()),
         width: int.tryParse(video?.getWidth()?.toString() ?? ''),
         height: int.tryParse(video?.getHeight()?.toString() ?? ''),
         videoCodec: video?.getCodec(),

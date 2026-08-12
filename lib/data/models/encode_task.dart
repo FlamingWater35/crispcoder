@@ -25,6 +25,19 @@ class EncodeTask {
   /// of assuming 30 fps.
   final double? sourceFrameRate;
 
+  /// True when the finished output was successfully inserted into the device
+  /// gallery (MediaStore). Only video outputs are ever saved to the gallery;
+  /// audio/subtitle outputs always remain files. Used by the queue UI to
+  /// display "Saved to Device Gallery" instead of guessing from the path.
+  final bool savedToGallery;
+
+  /// MediaStore URI (e.g. `content://media/external/audio/media/123`) of the
+  /// published copy in DCIM/Videolation, when `saveToDCIM` succeeded. When
+  /// set, the private `outputPath` copy is deleted on publish and Share reads
+  /// from this URI instead. Null when the output was never published (custom
+  /// output directory, publish failure, or an older persisted record).
+  final String? publishedUri;
+
   EncodeTask({
     required this.id,
     required this.sourcePath,
@@ -38,7 +51,19 @@ class EncodeTask {
     this.errorMessage,
     this.totalDurationSeconds = 0,
     this.sourceFrameRate,
+    this.savedToGallery = false,
+    this.publishedUri,
   });
+
+  /// Canonical user-facing title for this task.
+  ///
+  /// Video encodes are identified by their source; extractions (audio /
+  /// subtitle) by their artifact, so a running audio job never shows as
+  /// "Song.mp4". Used consistently by the queue tiles, the active-encode
+  /// spotlight, the foreground service and the notifications.
+  String get displayTitle => preset.outputType == OutputType.video
+      ? (sourceName ?? outputPath.split('/').last)
+      : outputPath.split('/').last;
 
   EncodeTask copyWith({
     String? id,
@@ -53,6 +78,8 @@ class EncodeTask {
     String? errorMessage,
     double? totalDurationSeconds,
     double? sourceFrameRate,
+    bool? savedToGallery,
+    String? publishedUri,
   }) {
     return EncodeTask(
       id: id ?? this.id,
@@ -67,6 +94,8 @@ class EncodeTask {
       errorMessage: errorMessage ?? this.errorMessage,
       totalDurationSeconds: totalDurationSeconds ?? this.totalDurationSeconds,
       sourceFrameRate: sourceFrameRate ?? this.sourceFrameRate,
+      savedToGallery: savedToGallery ?? this.savedToGallery,
+      publishedUri: publishedUri ?? this.publishedUri,
     );
   }
 }
@@ -97,6 +126,14 @@ class EncodeTaskAdapter extends TypeAdapter<EncodeTask> {
       // older app versions, so only read it when bytes remain.
       sourceFrameRate: r.availableBytes > 0 && r.readByte() == 1
           ? r.readDouble()
+          : null,
+      // Optional field appended at the very end; absent in records written
+      // by older app versions, so only read it when bytes remain.
+      savedToGallery: r.availableBytes > 0 && r.readByte() == 1,
+      // Optional field appended after savedToGallery; absent in records
+      // written by older app versions, so only read it when bytes remain.
+      publishedUri: r.availableBytes > 0 && r.readByte() == 1
+          ? r.readString()
           : null,
     );
   }
@@ -139,6 +176,13 @@ class EncodeTaskAdapter extends TypeAdapter<EncodeTask> {
     } else {
       w.writeByte(1);
       w.writeDouble(t.sourceFrameRate!);
+    }
+    w.writeByte(t.savedToGallery ? 1 : 0);
+    if (t.publishedUri == null) {
+      w.writeByte(0);
+    } else {
+      w.writeByte(1);
+      w.writeString(t.publishedUri!);
     }
   }
 }

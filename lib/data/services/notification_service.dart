@@ -131,7 +131,7 @@ class NotificationService {
   }
 
   /// Shows a completion alert notification.
-  Future<void> showCompleted(String title) async {
+  Future<void> showCompleted({required String id, required String title}) async {
     if (!_initialized) return;
     try {
       final androidDetails = AndroidNotificationDetails(
@@ -148,7 +148,9 @@ class NotificationService {
       final details = NotificationDetails(android: androidDetails);
 
       await _plugin.show(
-        id: title.hashCode,
+        // Task id hashes are unique per encode; title.hashCode could collide
+        // when two sources share a name and replace each other's alert.
+        id: id.hashCode,
         title: 'Encode Completed',
         body: '$title has finished transcoding successfully.',
         notificationDetails: details,
@@ -157,7 +159,11 @@ class NotificationService {
   }
 
   /// Shows a failure alert notification.
-  Future<void> showFailed(String title, String error) async {
+  Future<void> showFailed({
+    required String id,
+    required String title,
+    required String error,
+  }) async {
     if (!_initialized) return;
     try {
       final androidDetails = AndroidNotificationDetails(
@@ -174,7 +180,7 @@ class NotificationService {
       final details = NotificationDetails(android: androidDetails);
 
       await _plugin.show(
-        id: title.hashCode,
+        id: id.hashCode,
         title: 'Encode Failed',
         body: '$title failed: $error',
         notificationDetails: details,

@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -34,6 +36,38 @@ class PermissionService {
       if (!storage.isGranted) {
         throw MissingPermissionException('media read');
       }
+    }
+  }
+
+  /// Requests audio read access. Needed on API 33+ for MediaStore audio
+  /// inserts (publishing audio extractions to DCIM/Videolation), which some
+  /// OEMs reject without READ_MEDIA_AUDIO. Android-only: on iOS this maps to
+  /// microphone access, which would crash without an NSMicrophoneUsageDescription
+  /// — so it is a no-op there. Best-effort: returns whether audio access was
+  /// granted (a denial only means the audio output stays in app storage).
+  Future<bool> requireAudioRead() async {
+    if (Platform.isIOS) return false;
+    final audio = await Permission.audio.request();
+    return audio.isGranted;
+  }
+
+  /// Requests the permissions the app needs on first launch: media read
+  /// access (for picking sources) and notification permission (for encode
+  /// progress in the background). Best-effort: each request is isolated so a
+  /// denial of one never blocks the other, and the app remains fully usable
+  /// because both can be granted later from Settings or when an encode
+  /// actually starts.
+  Future<void> requestBootPermissions() async {
+    try {
+      await requireNotifications();
+    } catch (_) {
+      // Notifications are optional — progress just won't show if denied.
+    }
+    try {
+      await requireMediaRead();
+    } catch (_) {
+      // Media read is optional at boot — the file picker requests it again
+      // when the user actually selects a source.
     }
   }
 }

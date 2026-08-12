@@ -4,10 +4,12 @@ import 'package:collection/collection.dart';
 import 'package:crispcoder/core/errors/app_exceptions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../data/models/encode_progress.dart';
 import '../data/models/encode_task.dart';
+import '../data/models/transcode_preset.dart';
 import '../data/repositories/history_repository.dart';
 import '../data/repositories/queue_repository.dart';
 import '../data/services/foreground_service_wrapper.dart';
@@ -15,6 +17,7 @@ import '../data/services/gallery_service.dart';
 import '../data/services/notification_service.dart';
 import '../data/services/permission_service.dart';
 import '../data/services/transcode_service.dart';
+import '../main.dart';
 import 'active_encode_provider.dart';
 import 'app_settings_provider.dart';
 import 'device_capability_provider.dart';
@@ -128,7 +131,7 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
 
       await WakelockPlus.enable();
       await ForegroundServiceWrapper.instance.start(
-        title: 'Transcoding: ${next.sourceName ?? 'video'}',
+        title: 'Transcoding: ${next.displayTitle}',
         text: 'Starting…',
       );
       await NotificationService.instance.showProgress(
@@ -146,26 +149,63 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
       ref.read(activeEncodeProvider.notifier).attach(session);
       await session.completion;
 
+      // All outputs are published to DCIM/Videolation when no custom output
+      // directory is configured. The platform channel uses MediaStore so
+      // video, audio AND subtitle files land in the same user-visible folder
+      // (audio/subtitle must never go through Gal.putVideo, which would
+      // register them as video/gallery items). The result is persisted on the
+      // task so the queue tile can display an accurate "Saved to DCIM" label
+      // instead of guessing from the output path.
       final finished = runningTask.copyWith(
         status: EncodeStatus.completed,
         finishedAt: DateTime.now(),
       );
-      await QueueRepository.instance.upsert(finished);
-      await HistoryRepository.instance.add(finished);
-
-      // Only save to gallery when no custom output directory is configured.
-      // When a custom dir IS set, the file is already in the user's chosen
-      // location — copying to gallery would create an unwanted duplicate.
       final settings = ref.read(appSettingsProvider);
+      var savedToGallery = false;
+      String? publishedUri;
       if (settings.outputDirectory == null) {
-        await ref
+        // Audio outputs are inserted into MediaStore.Audio.Media, which some
+        // OEMs reject on API 33+ without READ_MEDIA_AUDIO. Request it right
+        // before the publish (lazily, so boot never shows an extra dialog).
+        // Best-effort: a denial only leaves the output in app storage.
+        if (next.preset.outputType == OutputType.audio) {
+          await ref.read(permissionServiceProvider).requireAudioRead();
+        }
+        // saveToDCIM returns the MediaStore URI (content://…) on success.
+        // On failure it returns null after logging the real exception.
+        publishedUri = await ref
             .read(galleryServiceProvider)
-            .saveToGallery(finished.outputPath);
+            .saveToDCIM(
+              path: finished.outputPath,
+              outputType: next.preset.outputType,
+              displayName: p.basename(finished.outputPath),
+            );
+        savedToGallery = publishedUri != null;
+        if (publishedUri == null) {
+          ref.read(loggerProvider).w(
+            'saveToDCIM returned null for ${finished.outputPath} — '
+            'the output stays in app-private storage and no DCIM/Videolation '
+            'entry was created. Check Logcat for the underlying exception.',
+          );
+        } else {
+          // The file now lives in MediaStore (DCIM/Videolation). Delete the
+          // private copy so it does not linger in app storage forever — the
+          // "(1)" duplicate names and the storage leak both come from these
+          // undeleted copies colliding with the next encode's uniqueOutputPath.
+          await _deletePartialOutput(finished.outputPath);
+        }
       }
+      final persisted = finished.copyWith(
+        savedToGallery: savedToGallery,
+        publishedUri: publishedUri,
+      );
+      await QueueRepository.instance.upsert(persisted);
+      await HistoryRepository.instance.add(persisted);
 
       await NotificationService.instance.cancelProgress();
       await NotificationService.instance.showCompleted(
-        next.sourceName ?? 'Video',
+        id: next.id,
+        title: next.displayTitle,
       );
     } on EncodeCancelledException {
       // Delete partial output so the user doesn't get a corrupt file
@@ -199,8 +239,9 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
 
         await NotificationService.instance.cancelProgress();
         await NotificationService.instance.showFailed(
-          runningTask.sourceName ?? 'Video',
-          e.toString().split('\n').first,
+          id: runningTask.id,
+          title: runningTask.displayTitle,
+          error: e.toString().split('\n').first,
         );
       }
     } finally {

@@ -8,7 +8,10 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../core/utils/path_helpers.dart';
 import '../../core/utils/snackbar_helper.dart';
+import '../../data/models/encode_task.dart';
 import '../../data/models/transcode_preset.dart';
+import '../../data/repositories/history_repository.dart';
+import '../../data/repositories/queue_repository.dart';
 import '../../data/services/permission_service.dart';
 import '../../providers/app_settings_provider.dart';
 import '../../providers/app_update_provider.dart';
@@ -71,6 +74,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       message: successMessage,
       contentType: ContentType.success,
     );
+  }
+
+  /// Paths that cache cleanup must not delete: outputs still referenced by
+  /// the queue/history (Share relies on them after a relaunch) and the source
+  /// files of pending/paused tasks (resumed encodes read them again).
+  Set<String> _protectedPaths() {
+    final protected = <String>{};
+    for (final t in QueueRepository.instance.all) {
+      protected.add(t.outputPath);
+      if (t.status == EncodeStatus.pending ||
+          t.status == EncodeStatus.paused) {
+        protected.add(t.sourcePath);
+      }
+    }
+    for (final t in HistoryRepository.instance.all) {
+      protected.add(t.outputPath);
+    }
+    return protected;
   }
 
   @override
@@ -241,20 +262,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               child: Column(
                 children: [
-                  ListTile(
-                    leading: const Icon(Icons.folder_outlined),
-                    title: const Text('Output Directory'),
-                    subtitle: Text(
-                      settings.outputDirectory ?? 'Default (Same as source)',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  SwitchListTile(
+                    secondary: const Icon(Icons.folder_open_outlined),
+                    title: const Text('Use file_picker package'),
+                    subtitle: const Text(
+                      'Off (default): built-in native picker with original '
+                      'filename detection. On: legacy file_picker package.',
                     ),
-                    trailing: const Icon(Icons.chevron_right),
+                    value: settings.useFilePickerPackage,
+                    onChanged: (v) => ref
+                        .read(appSettingsProvider.notifier)
+                        .setUseFilePickerPackage(v),
                     shape: const RoundedRectangleBorder(
                       borderRadius: BorderRadius.vertical(
                         top: Radius.circular(16),
                       ),
                     ),
+                  ),
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                  ListTile(
+                    leading: const Icon(Icons.folder_outlined),
+                    title: const Text('Output Directory'),
+                    subtitle: Text(
+                      settings.outputDirectory ??
+                          'Default (DCIM/Videolation · audio → Music)',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
                     onTap: () async {
                       String? selectedDirectory =
                           await FilePicker.getDirectoryPath();
@@ -269,7 +304,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ListTile(
                     leading: const Icon(Icons.cleaning_services_outlined),
                     title: const Text('Reset Output Directory'),
-                    subtitle: const Text('Save outputs alongside source files'),
+                    subtitle: const Text(
+                      'Save outputs to DCIM/Videolation by default',
+                    ),
                     trailing: const Icon(Icons.chevron_right),
                     shape: const RoundedRectangleBorder(
                       borderRadius: BorderRadius.vertical(
@@ -378,7 +415,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       message:
                           'This removes temporary FFmpeg files, two-pass logs '
                           'and other cached data. Saved outputs are kept.',
-                      action: PathHelpers.clearAppCache,
+                      action: () async {
+                        await PathHelpers.clearAppCache(
+                          protect: _protectedPaths(),
+                        );
+                      },
                       successTitle: 'Cache cleared',
                       successMessage: 'Temporary files removed.',
                     ),
@@ -404,7 +445,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           'This deletes encoded output files stored in the '
                           'app data folder. Files in a custom output '
                           'directory are not affected.',
-                      action: PathHelpers.deleteProcessedFilesFromAppData,
+                      action: () async {
+                        // Protect outputs still referenced by the queue or
+                        // history so Share and resumed encodes keep working.
+                        await PathHelpers.deleteProcessedFilesFromAppData(
+                          protect: _protectedPaths(),
+                        );
+                      },
                       successTitle: 'Processed files deleted',
                       successMessage: 'Output files removed from app data.',
                     ),

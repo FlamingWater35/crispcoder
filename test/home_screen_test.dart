@@ -79,16 +79,22 @@ void main() {
     String name = 'movie.mp4',
     DateTime? createdAt,
     DateTime? finishedAt,
+    String? errorMessage,
+    bool savedToGallery = false,
+    OutputType outputType = OutputType.video,
+    String? outputPath,
+    String? publishedUri,
   }) {
     return EncodeTask(
       id: id,
       sourcePath: '/tmp/$name',
       sourceName: name,
-      outputPath: '/tmp/out_$name',
-      preset: const TranscodePreset(
+      outputPath: outputPath ?? '/tmp/out_$name',
+      preset: TranscodePreset(
         id: 'p',
         name: 'P',
         category: 'Test',
+        outputType: outputType,
         videoCodec: VideoCodec.h264,
         crf: 23,
         audioCodec: AudioCodec.aac,
@@ -99,14 +105,22 @@ void main() {
       finishedAt: finishedAt,
       status: status,
       startedAt: status == EncodeStatus.running ? DateTime(2024, 1, 1) : null,
+      savedToGallery: savedToGallery,
+      publishedUri: publishedUri,
       totalDurationSeconds: 60,
+      errorMessage: errorMessage,
     );
   }
 
-  Future<void> pumpHome(WidgetTester tester, {EncodeProgress? progress}) async {
+  Future<void> pumpHome(
+    WidgetTester tester, {
+    EncodeProgress? progress,
+    Size size = const Size(800, 2400),
+  }) async {
     // Tall viewport so every section of the home screen is visible without
-    // scrolling (ListView children are lazily built).
-    tester.view.physicalSize = const Size(800, 2400);
+    // scrolling (ListView children are lazily built). Callers may pass a
+    // narrower size to exercise the compact (phone) layout.
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -229,6 +243,27 @@ void main() {
     expect(find.text('Resume encode'), findsNothing);
 
     // Cancel is only shown once progress arrives (not covered here)
+  });
+
+  testWidgets('running audio extraction spotlights the artifact, not the source',
+      (tester) async {
+    // The screenshot bug: while the job runs the spotlight showed the source
+    // "Perfect_World.mp4" and only flipped to "…_encoded.m4a" on completion.
+    await seed(tester, [
+      task(
+        id: 'run-audio',
+        name: 'Perfect_World.mp4',
+        outputType: OutputType.audio,
+        outputPath: '/docs/CrispCoder/Audio/Perfect_World_encoded.m4a',
+        status: EncodeStatus.running,
+      ),
+    ]);
+
+    await pumpHome(tester);
+
+    // Spotlight title is the artifact immediately, never the source .mp4.
+    expect(find.text('Perfect_World_encoded.m4a'), findsOneWidget);
+    expect(find.text('Perfect_World.mp4'), findsNothing);
   });
 
   testWidgets(
@@ -354,5 +389,193 @@ void main() {
 
     // Queue emptied → empty state returns
     expect(find.text('No encodes queued'), findsOneWidget);
+  });
+
+  testWidgets('failed and cancelled tasks are visible with a section header',
+      (tester) async {
+    await seed(tester, [
+      task(
+        id: 'fail-1',
+        name: 'broken.mp4',
+        status: EncodeStatus.failed,
+        errorMessage: 'FFmpeg exit code 1',
+        finishedAt: DateTime.now().subtract(const Duration(minutes: 3)),
+      ),
+      task(
+        id: 'cancel-1',
+        name: 'aborted.mp4',
+        status: EncodeStatus.cancelled,
+        finishedAt: DateTime.now().subtract(const Duration(minutes: 1)),
+      ),
+    ]);
+
+    await pumpHome(tester);
+
+    // Section header groups both
+    expect(find.text('Failed / Cancelled'), findsOneWidget);
+    expect(find.text('broken.mp4'), findsOneWidget);
+    expect(find.text('aborted.mp4'), findsOneWidget);
+    // The failure message is surfaced on the tile
+    expect(find.text('FFmpeg exit code 1'), findsOneWidget);
+
+    // The Failed stat chip reflects the count
+    final chipCount = find.descendant(
+      of: find.byType(StatusSummary),
+      matching: find.text('2'),
+    );
+    expect(chipCount, findsOneWidget);
+  });
+
+  testWidgets('queue tile shows the real path unless saved to DCIM',
+      (tester) async {
+    // Seeded via Hive: savedToGallery=false → real path shown; true →
+    // 'Saved to DCIM/Videolation'.
+    await seed(tester, [
+      task(id: 'gallery-1', name: 'g.mp4', status: EncodeStatus.completed),
+      task(
+        id: 'gallery-2',
+        name: 'h.mp4',
+        status: EncodeStatus.completed,
+        savedToGallery: true,
+        publishedUri: 'content://media/external/video/media/7',
+      ),
+    ]);
+
+    await pumpHome(tester);
+
+    // Expand both completed tiles to reveal the details panel.
+    await tester.tap(find.text('g.mp4'));
+    await tester.tap(find.text('h.mp4'));
+    await tester.pump();
+
+    expect(find.text('/tmp/out_g.mp4'), findsOneWidget);
+    expect(
+      find.text('Saved to DCIM/Videolation (out_h.mp4)'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('audio/subtitle tiles title the output artifact, not the source',
+      (tester) async {
+    // The audio task's source video is "clip.mp4" but the artifact is
+    // "clip_encoded.m4a" — the tile title must show the artifact so the
+    // queue never shouts ".mp4" for an audio extraction.
+    await seed(tester, [
+      task(
+        id: 'audio-1',
+        name: 'clip.mp4',
+        outputType: OutputType.audio,
+        outputPath: '/docs/CrispCoder/Audio/clip_encoded.m4a',
+        status: EncodeStatus.completed,
+      ),
+      task(
+        id: 'sub-1',
+        name: 'movie.mp4',
+        outputType: OutputType.subtitle,
+        outputPath: '/docs/CrispCoder/Subtitles/movie_encoded.srt',
+        status: EncodeStatus.completed,
+      ),
+      // A published audio task: label must show Music/CrispCoder, not DCIM
+      // (the Audio MediaStore collection rejects DCIM as a relative path).
+      task(
+        id: 'audio-pub',
+        name: 'song.mp4',
+        outputType: OutputType.audio,
+        outputPath: '/docs/CrispCoder/Audio/song_encoded.m4a',
+        publishedUri: 'content://media/external/audio/media/9',
+        status: EncodeStatus.completed,
+      ),
+    ]);
+
+    await pumpHome(tester);
+
+    // Titles are the output basenames — never the source .mp4.
+    expect(find.text('clip_encoded.m4a'), findsOneWidget);
+    expect(find.text('movie_encoded.srt'), findsOneWidget);
+    expect(find.text('song_encoded.m4a'), findsOneWidget);
+    expect(find.text('clip.mp4'), findsNothing);
+    expect(find.text('movie.mp4'), findsNothing);
+
+    // The details panel's Source row still shows the real source name.
+    await tester.tap(find.text('clip_encoded.m4a'));
+    await tester.pump();
+    expect(find.text('clip.mp4'), findsOneWidget);
+
+    // Published audio shows the Music/CrispCoder location, not DCIM.
+    await tester.tap(find.text('song_encoded.m4a'));
+    await tester.pump();
+    expect(
+      find.text('Saved to Music/CrispCoder (song_encoded.m4a)'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('status chips lay out as a 2×2 grid on phone widths',
+      (tester) async {
+    // 360 logical px is a typical phone width — below the 600px single-row
+    // threshold, so the four chips must wrap into two rows of two.
+    await seed(tester, [
+      task(id: 'r', name: 'r.mp4', status: EncodeStatus.running),
+      task(id: 'q', name: 'q.mp4'),
+      task(
+        id: 'c',
+        name: 'c.mp4',
+        status: EncodeStatus.completed,
+        finishedAt: DateTime.now(),
+      ),
+      task(
+        id: 'f',
+        name: 'f.mp4',
+        status: EncodeStatus.failed,
+        errorMessage: 'boom',
+        finishedAt: DateTime.now(),
+      ),
+    ]);
+
+    await pumpHome(tester, size: const Size(360, 800));
+
+    final summary = find.byType(StatusSummary);
+    expect(summary, findsOneWidget);
+
+    // Scope to the status chips: the section header also renders
+    // "Completed" (and the queue tiles their own titles).
+    Finder inSummary(String label) =>
+        find.descendant(of: summary, matching: find.text(label));
+
+    // Two rows: "Running"/"Queued" share the top row, "Completed"/"Failed"
+    // the bottom row. Same-row chips have equal vertical centers; the rows
+    // are vertically separated.
+    final runningY = tester.getCenter(inSummary('Running')).dy;
+    final queuedY = tester.getCenter(inSummary('Queued')).dy;
+    final completedY = tester.getCenter(inSummary('Completed')).dy;
+    final failedY = tester.getCenter(inSummary('Failed')).dy;
+    expect(runningY, moreOrLessEquals(queuedY, epsilon: 0.01));
+    expect(completedY, moreOrLessEquals(failedY, epsilon: 0.01));
+    expect(completedY, greaterThan(runningY));
+
+    // All four labels render untruncated (each chip is ~half the width, so
+    // the labels have room — no "R…"/"0…" glyphs).
+    expect(inSummary('Running'), findsOneWidget);
+    expect(inSummary('Queued'), findsOneWidget);
+    expect(inSummary('Completed'), findsOneWidget);
+    expect(inSummary('Failed'), findsOneWidget);
+  });
+
+  testWidgets('status chips stay in a single row on wide screens',
+      (tester) async {
+    await pumpHome(tester, size: const Size(1000, 1200));
+
+    final summary = find.byType(StatusSummary);
+    Finder inSummary(String label) =>
+        find.descendant(of: summary, matching: find.text(label));
+
+    // All four chips share one horizontal line.
+    final runningY = tester.getCenter(inSummary('Running')).dy;
+    final queuedY = tester.getCenter(inSummary('Queued')).dy;
+    final completedY = tester.getCenter(inSummary('Completed')).dy;
+    final failedY = tester.getCenter(inSummary('Failed')).dy;
+    expect(runningY, moreOrLessEquals(queuedY, epsilon: 0.01));
+    expect(runningY, moreOrLessEquals(completedY, epsilon: 0.01));
+    expect(runningY, moreOrLessEquals(failedY, epsilon: 0.01));
   });
 }

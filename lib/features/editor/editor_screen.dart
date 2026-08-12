@@ -1,13 +1,17 @@
+import 'dart:io';
+
+import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
 
 import '../../core/errors/app_exceptions.dart';
 import '../../core/utils/path_helpers.dart';
 import '../../data/models/encode_task.dart';
 import '../../data/models/media_info.dart';
 import '../../data/models/transcode_preset.dart';
+import '../../data/services/gallery_service.dart';
 import '../../data/services/media_probe_service.dart';
 import '../../data/services/permission_service.dart';
 import '../../providers/app_settings_provider.dart';
@@ -78,6 +82,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   final _startController = TextEditingController();
   final _endController = TextEditingController();
 
+  /// User-editable output base name (without extension). Defaults to the
+  /// derived source name; lets the user rename the output before enqueueing
+  /// (important when the picker only exposes numeric cache names like "29").
+  final _outputNameController = TextEditingController();
+
   bool get _isVideoCopy => _videoCodec == VideoCodec.copy;
   bool get _isAudioCopy => _audioCodec == AudioCodec.copy;
   bool get _hasVisualCrop => _cropWidth != null && _cropWidth! < 1.0;
@@ -86,6 +95,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   void dispose() {
     _startController.dispose();
     _endController.dispose();
+    _outputNameController.dispose();
     super.dispose();
   }
 
@@ -319,7 +329,43 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                                         16,
                                         14,
                                       ),
-                                      child: MediaInfoCard(info: _mediaInfo!),
+                                      child: Column(
+                                        children: [
+                                          MediaInfoCard(info: _mediaInfo!),
+                                          const SizedBox(height: 12),
+                                          // Editable output filename: defaults
+                                          // to the derived source name so the
+                                          // user can rename numeric cache
+                                          // names ("29") before enqueueing.
+                                          TextFormField(
+                                            key: const ValueKey(
+                                              'output-name-field',
+                                            ),
+                                            controller: _outputNameController,
+                                            decoration: InputDecoration(
+                                              labelText: 'Output name',
+                                              hintText: 'My Video',
+                                              helperText:
+                                                  'Without extension — the '
+                                                  'correct one is added '
+                                                  'automatically.',
+                                              border:
+                                                  const OutlineInputBorder(),
+                                              prefixIcon: const Icon(
+                                                Icons.edit_outlined,
+                                                size: 20,
+                                              ),
+                                              contentPadding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 10,
+                                                  ),
+                                            ),
+                                            textInputAction:
+                                                TextInputAction.next,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                     Expanded(
                                       child: _buildTabs(
@@ -459,7 +505,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           crf: _crf,
           onCrfChanged: (v) => setState(() => _crf = v.toInt()),
           videoBitrate: _videoBitrate,
-          onVideoBitrateChanged: (v) => _videoBitrate = int.tryParse(v) ?? 4000,
+          onVideoBitrateChanged: (v) {
+            setState(() {
+              _videoBitrate = int.tryParse(v) ?? 4000;
+            });
+          },
           videoPreset: _videoPreset,
           onVideoPresetChanged: (v) => setState(() => _videoPreset = v),
           hasVisualCrop: _hasVisualCrop,
@@ -670,38 +720,60 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     try {
       await ref.read(permissionServiceProvider).requireMediaRead();
 
-      final result = await FilePicker.pickFile(type: FileType.video);
+      String? name;
+      String? path;
+      if (ref.read(appSettingsProvider).useFilePickerPackage) {
+        // Legacy path: the original simple file_picker implementation.
+        final result = await FilePicker.pickFile(type: FileType.video);
+        name = result?.name;
+        path = result?.path;
+      } else {
+        // Default: native SAF picker with DISPLAY_NAME filename detection.
+        try {
+          final picked = await ref.read(galleryServiceProvider).pickVideo();
+          name = picked?.name;
+          path = picked?.path;
+        } on MissingPluginException {
+          // Stale build without the native channel — fall back.
+          final result = await FilePicker.pickFile(type: FileType.video);
+          name = result?.name;
+          path = result?.path;
+        } on PlatformException {
+          // Native picker failed (provider error) — fall back instead of
+          // stranding the user.
+          final result = await FilePicker.pickFile(type: FileType.video);
+          name = result?.name;
+          path = result?.path;
+        }
+      }
 
-      if (result == null) {
+      if (path == null) {
         setState(() => _picking = false);
         return;
       }
 
-      // The picker's PlatformFile keeps the real file name (e.g.
-      // "MyVideo.mp4") even though `path` on Android may point at a cached
-      // copy with a numeric name. Capture it for output naming.
-      _pickedFileName = result.name;
-
-      final path = result.path;
-      if (path == null) {
-        setState(() {
-          _error = 'Could not retrieve file path.';
-          _picking = false;
-        });
-        return;
-      }
-
-      // A file was picked — now read/analyze it.
+      // A file was picked — now read/analyze it. (Local copy so the value
+      // stays non-null inside the setState closure below.)
+      final resolvedPath = path;
       setState(() {
         _picking = false;
         _probing = true;
       });
-      final info = await ref.read(mediaProbeServiceProvider).probe(path);
+      final info = await ref.read(mediaProbeServiceProvider).probe(resolvedPath);
       setState(() {
-        _sourcePath = path;
+        _sourcePath = resolvedPath;
         _mediaInfo = info;
         _selectedPresetId = 'custom';
         _applySourceDefaults();
+        // Keep the picked name on the field so _submit derives sourceName
+        // from it (previously dead code — always null, which degraded the
+        // file_picker fallback to video_<timestamp> names).
+        _pickedFileName = name;
+        // Default the editable output name to the derived display name
+        // (picker name, or path basename, or timestamped fallback).
+        _outputNameController.text = PathHelpers.safeOutputBaseName(
+          PathHelpers.deriveDisplayName(pickerName: name, path: resolvedPath),
+        );
         _probing = false;
       });
     } on AppException catch (e) {
@@ -721,8 +793,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   void _openPreview() {
     if (_sourcePath == null) return;
+    // Preview subtitle extraction converts a stream to SRT — pass the first
+    // TEXT-based subtitle track (bitmap PGS/DVD streams cannot be converted
+    // and would make preview silently show no subtitles).
+    final textSubtitleIndex = _mediaInfo?.subtitleTracks
+        .where((t) => t.isTextSubtitle)
+        .map((t) => t.subtitleStreamIndex)
+        .firstOrNull;
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PreviewScreen(path: _sourcePath!)),
+      MaterialPageRoute(
+        builder: (_) => PreviewScreen(
+          path: _sourcePath!,
+          subtitleStreamIndex: textSubtitleIndex,
+        ),
+      ),
     );
   }
 
@@ -840,6 +924,27 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       return;
     }
 
+    // Subtitle extraction only works for text-based tracks. Image-based
+    // subtitles (PGS/DVD/VobSub) cannot be converted to SRT/ASS by FFmpeg —
+    // block them up front with a clear message instead of failing silently.
+    if (_outputType == OutputType.subtitle) {
+      final track = _mediaInfo?.subtitleTracks.firstWhereOrNull(
+        (t) => t.subtitleStreamIndex == _burnSubtitleIndex,
+      );
+      if (track != null && !track.isTextSubtitle) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This subtitle track is image-based and cannot be converted '
+              'to SRT/ASS. Choose a text subtitle track.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+    }
+
     final startDur = _parseTimeToDuration(_startController.text);
     final endDur = _parseTimeToDuration(_endController.text);
     if (startDur != null && endDur != null && startDur >= endDur) {
@@ -854,9 +959,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     // Validate codec/container compatibility up front so the user is told
     // about invalid combinations (e.g. WebM + H.264) instead of getting a
-    // broken file from FFmpeg.
-    final pendingPreset = _buildPreset();
-    final issues = pendingPreset.compatibilityIssues();
+    // broken file from FFmpeg. The preset is built once and reused, so the
+    // compatibility check and the enqueued task describe the same config.
+    final preset = _buildPreset();
+    final issues = preset.compatibilityIssues();
     if (issues.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -869,17 +975,35 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     final settings = ref.read(appSettingsProvider);
 
-    final preset = _buildPreset();
-
-    // Retain the ORIGINAL video filename (from the picker's PlatformFile,
-    // which keeps the real name even when the cached path is numeric) with
-    // an '_encoded' suffix, e.g. "MyVideo_encoded.mp4" instead of "29.mp4".
-    final sourceFileName = _pickedFileName ?? p.basename(sourcePath);
-    final baseName = PathHelpers.sanitizeFileName(
-      p.basenameWithoutExtension(sourceFileName),
+    // Retain a user-facing source name: the picker's PlatformFile name when
+    // it looks real, otherwise the path basename — and if both are bare
+    // numbers (Android file_picker cache copies like "29"), a readable
+    // timestamped name. The queue UI, notifications and history show this
+    // name, never the raw numeric cache path.
+    final sourceFileName = PathHelpers.deriveDisplayName(
+      pickerName: _pickedFileName,
+      path: sourcePath,
     );
 
-    final outDir = settings.outputDirectory ?? p.dirname(sourcePath);
+    // Output base name: the user-editable field wins; otherwise fall back to
+    // the derived display name. Never empty or a bare number.
+    final requestedName = _outputNameController.text.trim().isEmpty
+        ? sourceFileName
+        : _outputNameController.text.trim();
+    final baseName = PathHelpers.safeOutputBaseName(requestedName);
+
+    // Output directory: a custom directory wins for ALL output types (video,
+    // audio, and subtitle outputs all land there). Without one, video stays
+    // next to the source (and is inserted into the device gallery), while
+    // audio/subtitle outputs go to a dedicated app-documents folder — never
+    // into the volatile file_picker cache or the video gallery. Ensure the
+    // directory exists before encoding so FFmpeg can create the file.
+    final outDir = await PathHelpers.resolveOutputDirectory(
+      outputType: preset.outputType,
+      customDirectory: settings.outputDirectory,
+      sourcePath: sourcePath,
+    );
+    await Directory(outDir).create(recursive: true);
 
     final outputPath = PathHelpers.uniqueOutputPath(
       directory: outDir,
@@ -890,11 +1014,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final task = EncodeTask(
       id: 'task_${DateTime.now().millisecondsSinceEpoch}',
       sourcePath: sourcePath,
-      sourceName: p.basename(sourcePath),
+      sourceName: sourceFileName,
       outputPath: outputPath,
       preset: preset,
       createdAt: DateTime.now(),
-      totalDurationSeconds: _mediaInfo?.duration?.inSeconds.toDouble() ?? 0,
+      totalDurationSeconds:
+          (_mediaInfo?.duration?.inMilliseconds ?? 0) / 1000.0,
       // Captured so the hardware-encoder path and GOP calculation can use the
       // real source rate instead of assuming 30 fps.
       sourceFrameRate: _mediaInfo?.frameRate,

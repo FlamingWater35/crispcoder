@@ -11,55 +11,70 @@ class StatusSummary extends StatelessWidget {
     required this.running,
     required this.queued,
     required this.completed,
+    this.failed = 0,
   });
 
   final int running;
   final int queued;
   final int completed;
+  final int failed;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final chips = <Widget>[
+      _StatChip(
+        icon: Icons.autorenew_rounded,
+        color: scheme.primary,
+        container: scheme.primaryContainer.withValues(alpha: 0.45),
+        label: 'Running',
+        value: running,
+      ),
+      _StatChip(
+        icon: Icons.schedule_rounded,
+        color: scheme.onSurfaceVariant,
+        container: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        label: 'Queued',
+        value: queued,
+      ),
+      _StatChip(
+        icon: Icons.check_circle_rounded,
+        color: scheme.tertiary,
+        container: scheme.tertiaryContainer.withValues(alpha: 0.45),
+        label: 'Completed',
+        value: completed,
+      ),
+      _StatChip(
+        icon: Icons.error_outline_rounded,
+        color: scheme.error,
+        container: scheme.errorContainer.withValues(alpha: 0.45),
+        label: 'Failed',
+        value: failed,
+      ),
+    ];
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // On narrow screens keep three chips in one row; on wider screens
-          // let them breathe with more spacing.
-          final spacing = constraints.maxWidth >= 600 ? 12.0 : 8.0;
-          return Row(
+          // Wide screens: keep the single row.
+          if (constraints.maxWidth >= 600) {
+            const spacing = 10.0;
+            return Row(children: [
+              for (var i = 0; i < chips.length; i++) ...[
+                if (i > 0) const SizedBox(width: spacing),
+                Expanded(child: chips[i]),
+              ],
+            ]);
+          }
+          // Phones: 2×2 grid so labels never truncate.
+          const gap = 8.0;
+          final itemWidth = (constraints.maxWidth - gap) / 2;
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
             children: [
-              Expanded(
-                child: _StatChip(
-                  icon: Icons.autorenew_rounded,
-                  color: scheme.primary,
-                  container: scheme.primaryContainer.withValues(alpha: 0.45),
-                  label: 'Running',
-                  value: running,
-                ),
-              ),
-              SizedBox(width: spacing),
-              Expanded(
-                child: _StatChip(
-                  icon: Icons.schedule_rounded,
-                  color: scheme.onSurfaceVariant,
-                  container: scheme.surfaceContainerHighest.withValues(
-                    alpha: 0.5,
-                  ),
-                  label: 'Queued',
-                  value: queued,
-                ),
-              ),
-              SizedBox(width: spacing),
-              Expanded(
-                child: _StatChip(
-                  icon: Icons.check_circle_rounded,
-                  color: scheme.tertiary,
-                  container: scheme.tertiaryContainer.withValues(alpha: 0.45),
-                  label: 'Completed',
-                  value: completed,
-                ),
-              ),
+              for (final c in chips) SizedBox(width: itemWidth, child: c),
             ],
           );
         },

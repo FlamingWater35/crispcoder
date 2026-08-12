@@ -225,10 +225,18 @@ class QuickEditTab extends StatelessWidget {
               ),
               for (final sub in subtitleTracks)
                 ChoiceChip(
-                  label: Text(sub.label),
+                  label: Text(
+                    sub.isTextSubtitle
+                        ? sub.label
+                        : '${sub.label} (image-based)',
+                  ),
+                  // Image-based tracks (PGS/DVD/VobSub) cannot be burned in
+                  // with libass — mark them disabled so the user is not
+                  // surprised by a silent failure.
+                  onSelected: sub.isTextSubtitle
+                      ? (_) => onSubtitleChanged(sub.subtitleStreamIndex)
+                      : null,
                   selected: burnSubtitleIndex == sub.subtitleStreamIndex,
-                  onSelected: (_) =>
-                      onSubtitleChanged(sub.subtitleStreamIndex),
                 ),
             ],
           ),
@@ -239,16 +247,23 @@ class QuickEditTab extends StatelessWidget {
         const SizedBox(height: 16),
         Text('Extract Subtitle Track', style: labelStyle),
         const SizedBox(height: 8),
-        // Subtitle Chips
+        // Subtitle Chips. Image-based tracks (PGS/DVD/VobSub) cannot be
+        // converted to SRT/ASS by FFmpeg, so they are disabled and labelled.
         Wrap(
           spacing: 8.0,
           runSpacing: 8.0,
           children: [
             for (final sub in subtitleTracks)
               ChoiceChip(
-                label: Text(sub.label),
+                label: Text(
+                  sub.isTextSubtitle
+                      ? sub.label
+                      : '${sub.label} (image-based)',
+                ),
                 selected: burnSubtitleIndex == sub.subtitleStreamIndex,
-                onSelected: (_) => onSubtitleChanged(sub.subtitleStreamIndex),
+                onSelected: sub.isTextSubtitle
+                    ? (_) => onSubtitleChanged(sub.subtitleStreamIndex)
+                    : null,
               ),
           ],
         ),
@@ -307,9 +322,11 @@ class QuickEditTab extends StatelessWidget {
 
 /// Restricts input to the strict `HH:MM:SS` time format.
 ///
-/// Only digits and colons are allowed; colons are auto-inserted every two
-/// digits and the value is capped at 8 characters, so users can't type
-/// arbitrary text into the start/end time fields.
+/// Only digits are allowed; colons are auto-inserted every two digits. The
+/// value is capped at 6 digits. Short inputs are right-aligned: `5` means
+/// `00:00:05`, `1234` means `00:12:34` (MM:SS) and `123456` is `12:34:56` —
+/// never `01:23:4` left-padded. Minutes and seconds are clamped to 0–59 so
+/// `99` seconds becomes `00:59`.
 class TimeInputFormatter extends TextInputFormatter {
   const TimeInputFormatter();
 
@@ -318,22 +335,33 @@ class TimeInputFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    // Keep only digits, then rebuild as HH:MM:SS.
+    // Keep only digits, then pad left to 6 so the value reads naturally:
+    // HH:MM:SS with the typed digits right-aligned.
     final digits = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.isEmpty) {
+      return const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
     final capped = digits.length > 6 ? digits.substring(0, 6) : digits;
+    final padded = capped.padLeft(6, '0');
 
-    final buffer = StringBuffer();
-    for (var i = 0; i < capped.length; i++) {
-      if (i == 2 || i == 4) buffer.write(':');
-      buffer.write(capped[i]);
+    String clampTwo(String raw) {
+      final n = int.tryParse(raw) ?? 0;
+      return n.clamp(0, 59).toString().padLeft(2, '0');
     }
 
-    final formatted = buffer.toString();
-    // Preserve cursor position roughly: place it after the formatted text.
-    final selectionEnd = formatted.length;
+    final formatted = [
+      padded.substring(0, 2),
+      clampTwo(padded.substring(2, 4)),
+      clampTwo(padded.substring(4, 6)),
+    ].join(':');
+
+    // Place the cursor after the formatted text.
     return TextEditingValue(
       text: formatted,
-      selection: TextSelection.collapsed(offset: selectionEnd),
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }

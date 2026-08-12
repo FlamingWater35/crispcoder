@@ -25,6 +25,24 @@ class SubtitleTrack {
     final cod = codec ?? 'sub';
     return 'Track $index ($lang, $cod)';
   }
+
+  /// True when this subtitle stream is text-based and can be converted to
+  /// SRT/ASS (or burned in with libass). Image-based subtitle codecs such as
+  /// `dvd_subtitle` and `hdmv_pgs_subtitle` (PGS) cannot be OCR'd by FFmpeg
+  /// into text, so extraction to .srt/.ass and text burn-in will fail for
+  /// them.
+  bool get isTextSubtitle {
+    const textCodecs = {
+      'subrip',
+      'srt',
+      'ass',
+      'ssa',
+      'mov_text',
+      'webvtt',
+      'text',
+    };
+    return textCodecs.contains(codec?.toLowerCase());
+  }
 }
 
 /// Lightweight probed metadata for a source media file.

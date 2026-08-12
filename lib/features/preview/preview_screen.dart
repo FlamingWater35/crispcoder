@@ -21,6 +21,7 @@ class PreviewScreen extends StatefulWidget {
     this.initialStart,
     this.initialEnd,
     this.initialCrop,
+    this.subtitleStreamIndex,
   });
 
   final String path;
@@ -29,6 +30,12 @@ class PreviewScreen extends StatefulWidget {
   final Duration? initialStart;
   final Duration? initialEnd;
   final CropResult? initialCrop;
+
+  /// Zero-based index among the source's subtitle streams to extract for the
+  /// on-screen preview. When null, the first subtitle stream is used. Callers
+  /// that probed the source should pass a text-based track index so bitmap
+  /// (PGS/DVD) streams — which cannot be converted to SRT — are skipped.
+  final int? subtitleStreamIndex;
 
   @override
   State<PreviewScreen> createState() => _PreviewScreenState();
@@ -181,9 +188,18 @@ class _PreviewScreenState extends State<PreviewScreen> {
       final srtPath =
           '${tempDir.path}/sub_${DateTime.now().millisecondsSinceEpoch}.srt';
 
-      final session = await FFmpegKit.execute(
-        '-i "$path" -map 0:s:0 -c:s srt "$srtPath"',
-      );
+      // Arguments form: no shell interpolation, so paths with quotes or
+      // unusual characters cannot break the command. The caller may pass a
+      // specific (text) subtitle stream index; default to the first stream.
+      final session = await FFmpegKit.executeWithArguments([
+        '-i',
+        path,
+        '-map',
+        '0:s:${widget.subtitleStreamIndex ?? 0}',
+        '-c:s',
+        'srt',
+        srtPath,
+      ]);
       final rc = await session.getReturnCode();
 
       if (ReturnCode.isSuccess(rc)) {

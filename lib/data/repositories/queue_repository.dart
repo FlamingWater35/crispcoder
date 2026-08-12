@@ -132,23 +132,26 @@ class QueueRepository {
     await _box.delete(id);
   }
 
+  /// Removes all finished tasks: completed, cancelled, and failed. Pending,
+  /// paused, and running tasks are kept.
   Future<void> clearCompleted() async {
     // Per-key guard, matching `all`: one corrupt record must not abort the
     // whole clear.
-    final completed = <dynamic>[];
+    final finished = <dynamic>[];
     for (final key in _box.keys) {
       try {
         final task = _box.get(key);
         if (task != null &&
             (task.status == EncodeStatus.completed ||
-                task.status == EncodeStatus.cancelled)) {
-          completed.add(key);
+                task.status == EncodeStatus.cancelled ||
+                task.status == EncodeStatus.failed)) {
+          finished.add(key);
         }
       } catch (_) {
         await _safeDelete(key);
       }
     }
-    for (final id in completed) {
+    for (final id in finished) {
       await _box.delete(id);
     }
   }

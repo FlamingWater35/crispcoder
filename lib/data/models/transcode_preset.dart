@@ -277,30 +277,36 @@ class TranscodePreset {
         issues.add(CompatibilityIssue.webmVideoUnsupported);
       }
 
-      final audioOk = switch (audioCodec) {
-        AudioCodec.opus || AudioCodec.vorbis => true,
-        AudioCodec.copy => switch (sourceAudioCodec?.toLowerCase()) {
-          'opus' || 'vorbis' => true,
+      // Audio rules are irrelevant when the audio track is being removed —
+      // WebM + AAC + Remove Audio is a valid combination.
+      if (!removeAudio) {
+        final audioOk = switch (audioCodec) {
+          AudioCodec.opus || AudioCodec.vorbis => true,
+          AudioCodec.copy => switch (sourceAudioCodec?.toLowerCase()) {
+            'opus' || 'vorbis' => true,
+            _ => false,
+          },
           _ => false,
-        },
-        _ => false,
-      };
-      if (!audioOk) {
-        issues.add(CompatibilityIssue.webmAudioUnsupported);
+        };
+        if (!audioOk) {
+          issues.add(CompatibilityIssue.webmAudioUnsupported);
+        }
       }
     }
 
     if (container == ContainerFormat.mp4) {
-      final audioOk = switch (audioCodec) {
-        AudioCodec.opus || AudioCodec.vorbis => false,
-        AudioCodec.copy => switch (sourceAudioCodec?.toLowerCase()) {
-          'opus' || 'vorbis' => false,
+      if (!removeAudio) {
+        final audioOk = switch (audioCodec) {
+          AudioCodec.opus || AudioCodec.vorbis => false,
+          AudioCodec.copy => switch (sourceAudioCodec?.toLowerCase()) {
+            'opus' || 'vorbis' => false,
+            _ => true,
+          },
           _ => true,
-        },
-        _ => true,
-      };
-      if (!audioOk) {
-        issues.add(CompatibilityIssue.mp4AudioUnsupported);
+        };
+        if (!audioOk) {
+          issues.add(CompatibilityIssue.mp4AudioUnsupported);
+        }
       }
     }
 

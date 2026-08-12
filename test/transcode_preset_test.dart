@@ -12,6 +12,7 @@ TranscodePreset _base({
   int? burnSubtitleIndex,
   double? cropWidth,
   double? cropHeight,
+  bool removeAudio = false,
 }) {
   return TranscodePreset(
     id: 'p',
@@ -29,6 +30,7 @@ TranscodePreset _base({
     burnSubtitleIndex: burnSubtitleIndex,
     cropWidth: cropWidth,
     cropHeight: cropHeight,
+    removeAudio: removeAudio,
   );
 }
 
@@ -243,6 +245,67 @@ void main() {
         ).copyWith(outputType: OutputType.subtitle).compatibilityIssues(),
         isEmpty,
       );
+    });
+
+    test('webm + vp9 + remove audio ignores incompatible audio', () {
+      // WebM + AAC would normally be rejected, but the audio track is being
+      // removed so the combination is valid.
+      final issues = _base(
+        container: ContainerFormat.webm,
+        videoCodec: VideoCodec.vp9,
+        audioCodec: AudioCodec.aac,
+        removeAudio: true,
+      ).compatibilityIssues();
+      expect(issues, isEmpty);
+    });
+
+    test('webm + remove audio still rejects unsupported video', () {
+      final issues = _base(
+        container: ContainerFormat.webm,
+        videoCodec: VideoCodec.h264,
+        audioCodec: AudioCodec.aac,
+        removeAudio: true,
+      ).compatibilityIssues();
+      expect(issues, contains(CompatibilityIssue.webmVideoUnsupported));
+      expect(issues, isNot(contains(CompatibilityIssue.webmAudioUnsupported)));
+    });
+
+    test('mp4 + opus + remove audio ignores incompatible audio', () {
+      final issues = _base(
+        container: ContainerFormat.mp4,
+        audioCodec: AudioCodec.opus,
+        removeAudio: true,
+      ).compatibilityIssues();
+      expect(issues, isEmpty);
+    });
+
+    test('mp4 + remove audio still rejects nothing when codecs are valid', () {
+      expect(
+        _base(
+          container: ContainerFormat.mp4,
+          videoCodec: VideoCodec.h264,
+          audioCodec: AudioCodec.opus, // invalid but removed
+          removeAudio: true,
+        ).compatibilityIssues(),
+        isEmpty,
+      );
+    });
+
+    test('audio rules still apply when removeAudio is false', () {
+      final webmIssues = _base(
+        container: ContainerFormat.webm,
+        videoCodec: VideoCodec.vp9,
+        audioCodec: AudioCodec.aac,
+        removeAudio: false,
+      ).compatibilityIssues();
+      expect(webmIssues, contains(CompatibilityIssue.webmAudioUnsupported));
+
+      final mp4Issues = _base(
+        container: ContainerFormat.mp4,
+        audioCodec: AudioCodec.opus,
+        removeAudio: false,
+      ).compatibilityIssues();
+      expect(mp4Issues, contains(CompatibilityIssue.mp4AudioUnsupported));
     });
   });
 }

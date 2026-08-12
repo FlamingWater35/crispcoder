@@ -132,12 +132,15 @@ class TranscodeService {
 
   /// Maps an audio output extension to the FFmpeg muxer that produces it.
   /// `.m4a` is written by the `ipod` muxer (the audio-only MP4 variant) —
-  /// never the generic video `mp4` muxer; `.mka` by `matroska`. Everything
-  /// else (mp3/opus/ac3/flac/ogg) has a muxer named after the extension.
+  /// never the generic video `mp4` muxer; `.mka` by `matroska`. Opus has no
+  /// standalone muxer named after the codec — it is written into an Ogg
+  /// container, so `.opus` uses the `ogg` muxer. Everything else
+  /// (mp3/ac3/flac/ogg) has a muxer named after the extension.
   String _resolveAudioMuxer(String extension) {
     return switch (extension) {
       'm4a' => 'ipod',
       'mka' => 'matroska',
+      'opus' => 'ogg',
       _ => extension,
     };
   }
@@ -531,7 +534,8 @@ class TranscodeService {
     if (totalSeconds <= 0) {
       try {
         final info = await probe.probe(task.sourcePath);
-        totalSeconds = info.duration?.inSeconds.toDouble() ?? 0;
+        totalSeconds =
+            (info.duration?.inMilliseconds ?? 0) / 1000.0;
       } catch (e) {
         log.w('Could not probe duration; progress percent will be 0', error: e);
       }

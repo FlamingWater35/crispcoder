@@ -20,6 +20,7 @@ class AppConstants {
   static const keyEncoderPref = 'encoder_preference';
   static const keyThemeMode = 'theme_mode';
   static const keyOutputDirectory = 'output_directory';
+  static const keyUseFilePickerPackage = 'use_file_picker_package';
   static const keySchemaVersion = 'schema_version';
 
   // Foreground service
@@ -95,7 +96,9 @@ class AppConstants {
       container: ContainerFormat.mkv,
       encoderPref: EncoderPreference.software,
       faststart: false,
-      twoPass: true,
+      // HEVC + CRF cannot use generic two-pass; the flag advertised a mode
+      // that _supportsTwoPass() silently downgrades. Keep it honest.
+      twoPass: false,
       isBuiltIn: true,
     ),
   ];
