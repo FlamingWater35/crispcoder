@@ -52,12 +52,33 @@ Future<void> main() async {
   Hive.registerAdapter(EncodeStatusAdapter());
 
   try {
-    // DB Migration V6: Added VP9, FLAC, Vorbis codecs
+    // DB Migration V6: Added VP9, FLAC, Vorbis codecs.
+    // In-place migration: only stale built-in presets are replaced, so
+    // user-created presets survive the upgrade. Deleting the whole box (the
+    // old behavior) destroyed custom presets without warning.
     final settingsBox = await Hive.openBox(AppConstants.boxSettings);
     final schemaVersion =
         settingsBox.get(AppConstants.keySchemaVersion) as int? ?? 1;
     if (schemaVersion < 6) {
-      await Hive.deleteBoxFromDisk(AppConstants.boxPresets);
+      // The presets box may be open already or not yet — open it for the
+      // migration, close it afterwards so PresetRepository.bootstrap can
+      // open it cleanly on its own path.
+      final presetsBox = await Hive.openBox<TranscodePreset>(
+        AppConstants.boxPresets,
+      );
+      try {
+        // Remove only the built-in presets (their definitions changed in
+        // V6); custom presets are untouched.
+        final stale = presetsBox.values
+            .where((p) => p.isBuiltIn)
+            .map((p) => p.id)
+            .toList();
+        for (final id in stale) {
+          await presetsBox.delete(id);
+        }
+      } finally {
+        await presetsBox.close();
+      }
       await settingsBox.put(AppConstants.keySchemaVersion, 6);
     }
   } catch (e, st) {
@@ -100,7 +121,14 @@ Future<void> main() async {
   // is up. Deliberately fire-and-forget: the requests surface the OS dialogs
   // without blocking first paint, and both permissions can also be granted
   // later (file picker re-requests media read; Settings has both).
-  unawaited(PermissionService().requestBootPermissions());
+  // Read the permission service through a container so the app uses the same
+  // provider instance everywhere (and the request is easy to override in
+  // tests) instead of a one-off direct construction.
+  unawaited(
+    ProviderContainer()
+        .read(permissionServiceProvider)
+        .requestBootPermissions(),
+  );
 }
 
 /// Runs a repository bootstrap, logging instead of throwing so one failing

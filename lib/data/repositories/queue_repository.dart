@@ -48,6 +48,10 @@ class QueueRepository {
         await _deletePartialOutput(task.outputPath);
         // Build the demoted task explicitly: copyWith cannot clear the
         // timestamps because its nullable params use `?? this.field`.
+        // The probed-data optional fields (sourceFrameRate, savedToGallery,
+        // publishedUri) are carried over so a resumed encode still knows the
+        // real source framerate (HW encoders / GOP fall back to a blind 30
+        // fps without it) and the tile can still report a publish state.
         await _box.put(
           task.id,
           EncodeTask(
@@ -62,6 +66,9 @@ class QueueRepository {
             status: EncodeStatus.pending,
             errorMessage: null,
             totalDurationSeconds: task.totalDurationSeconds,
+            sourceFrameRate: task.sourceFrameRate,
+            savedToGallery: task.savedToGallery,
+            publishedUri: task.publishedUri,
           ),
         );
       } catch (_) {

@@ -131,7 +131,11 @@ class NotificationService {
   }
 
   /// Shows a completion alert notification.
-  Future<void> showCompleted({required String id, required String title}) async {
+  Future<void> showCompleted({
+    required String id,
+    required String title,
+    String? body,
+  }) async {
     if (!_initialized) return;
     try {
       final androidDetails = AndroidNotificationDetails(
@@ -152,7 +156,7 @@ class NotificationService {
         // when two sources share a name and replace each other's alert.
         id: id.hashCode,
         title: 'Encode Completed',
-        body: '$title has finished transcoding successfully.',
+        body: body ?? '$title has finished transcoding successfully.',
         notificationDetails: details,
       );
     } catch (_) {}

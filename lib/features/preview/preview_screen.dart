@@ -183,9 +183,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
   }
 
   Future<List<Subtitle>> _extractSubtitles(String path) async {
+    String? srtPath;
     try {
       final tempDir = await getTemporaryDirectory();
-      final srtPath =
+      srtPath =
           '${tempDir.path}/sub_${DateTime.now().millisecondsSinceEpoch}.srt';
 
       // Arguments form: no shell interpolation, so paths with quotes or
@@ -206,13 +207,24 @@ class _PreviewScreenState extends State<PreviewScreen> {
         final file = File(srtPath);
         if (await file.exists()) {
           final srtContent = await file.readAsString();
-          await file.delete();
-
           if (srtContent.trim().isEmpty) return [];
           return _parseSrt(srtContent);
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      // Fall through to an empty subtitle list.
+    } finally {
+      // Always remove the temp .srt, even when parsing throws after the
+      // write — otherwise every preview leaks a file into the cache.
+      if (srtPath != null) {
+        try {
+          final f = File(srtPath);
+          if (await f.exists()) await f.delete();
+        } catch (_) {
+          // Best-effort cleanup
+        }
+      }
+    }
     return [];
   }
 

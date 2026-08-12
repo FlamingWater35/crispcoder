@@ -35,7 +35,10 @@ class ForegroundServiceWrapper {
     _initialized = true;
   }
 
-  /// Starts the foreground service with current progress text.
+  /// Starts the foreground service. The FGS notification is the Android
+  /// "app is running" requirement — it stays minimal because the rich
+  /// progress notification (id 777, with the Cancel action) carries the
+  /// actual progress details.
   Future<void> start({required String title, required String text}) async {
     try {
       await FlutterForegroundTask.startService(
@@ -48,6 +51,9 @@ class ForegroundServiceWrapper {
   }
 
   /// Updates only the notification text without restarting the service.
+  /// Currently unused: the FGS notification stays minimal because the rich
+  /// id-777 progress notification carries the details. Kept for callers that
+  /// want to customize the FGS line (e.g. the active task name).
   Future<void> updateText(String text) async {
     try {
       FlutterForegroundTask.updateService(notificationText: text);

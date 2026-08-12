@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors/app_exceptions.dart';
 import '../../core/utils/path_helpers.dart';
+import '../../data/models/device_capability.dart';
 import '../../data/models/encode_task.dart';
 import '../../data/models/media_info.dart';
 import '../../data/models/transcode_preset.dart';
@@ -75,6 +76,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   int _audioBitrate = 160;
   ContainerFormat _container = ContainerFormat.mp4;
   bool _faststart = true;
+  bool _twoPass = false;
 
   bool _removeAudio = false;
   int? _burnSubtitleIndex;
@@ -204,6 +206,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               : 160);
     _container = preset.container;
     _faststart = preset.faststart;
+    _twoPass = preset.twoPass;
 
     _removeAudio = preset.removeAudio;
     _burnSubtitleIndex = preset.burnSubtitleIndex;
@@ -220,11 +223,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   /// Evaluates device capabilities and current settings to determine
   /// whether hardware encoding will be used, and builds a warning message
   /// if software encoding is forced due to subtitles or codec limits.
-  (bool, String) _resolveEncoderStatus() {
+  ///
+  /// [asyncCap] is supplied by the caller: `build` passes
+  /// `ref.watch(deviceCapabilityProvider)` so the encoder banner rebuilds
+  /// when the capability finishes loading, while `_buildPreset` (called from
+  /// an event handler, not build) passes `ref.read`.
+  (bool, String) _resolveEncoderStatus(AsyncValue<DeviceCapability> asyncCap) {
     final settings = ref.read(appSettingsProvider);
 
     // Safely get the DeviceCapability value if it has finished loading
-    final asyncCap = ref.read(deviceCapabilityProvider);
     final cap = asyncCap.maybeWhen(data: (d) => d, orElse: () => null);
 
     bool wantsHw =
@@ -266,8 +273,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Widget build(BuildContext context) {
     final presets = ref.watch(presetProvider);
 
-    // Resolve encoder status dynamically on rebuild
-    final (isUsingHw, encoderFeedback) = _resolveEncoderStatus();
+    // Resolve encoder status dynamically on rebuild. Watch the capability
+    // provider so the banner updates once detection completes (a plain read
+    // here would leave the 'hardware unsupported' hint stale).
+    final (isUsingHw, encoderFeedback) = _resolveEncoderStatus(
+      ref.watch(deviceCapabilityProvider),
+    );
 
     String title = 'New Encode';
     if (_mediaInfo != null) {
@@ -530,6 +541,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           onFramerateChanged: (v) => setState(() => _framerate = v),
           isUsingHw: isUsingHw,
           encoderFeedback: encoderFeedback,
+          twoPass: _twoPass,
+          onTwoPassChanged: (v) => setState(() => _twoPass = v),
         ),
         AudioTab(
           mediaInfo: mediaInfo,
@@ -864,7 +877,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   /// Builds the [TranscodePreset] from the current editor state.
   TranscodePreset _buildPreset() {
     // Re-evaluate encoder status for submission to ensure consistency.
-    final (isUsingHw, _) = _resolveEncoderStatus();
+    // Called from an event handler (not build), so a plain read is correct.
+    final (isUsingHw, _) = _resolveEncoderStatus(
+      ref.read(deviceCapabilityProvider),
+    );
 
     // CRF is only valid for software encoding. If HW is used, force bitrate mode.
     final effectiveUseCrf = !isUsingHw && _useCrf;
@@ -886,7 +902,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       container: _container,
       encoderPref: _resolveEncoderPref(),
       faststart: _faststart,
-      twoPass: false,
+      twoPass: _twoPass,
       isBuiltIn: false,
       removeAudio: _removeAudio,
       burnSubtitleIndex: _burnSubtitleIndex,

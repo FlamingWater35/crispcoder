@@ -39,6 +39,7 @@ void main() {
     required String id,
     EncodeStatus status = EncodeStatus.pending,
     String outputPath = '/tmp/out.mp4',
+    double? sourceFrameRate,
   }) {
     return EncodeTask(
       id: id,
@@ -59,6 +60,7 @@ void main() {
       status: status,
       startedAt: status == EncodeStatus.running ? DateTime(2024, 1, 1) : null,
       totalDurationSeconds: 60,
+      sourceFrameRate: sourceFrameRate,
     );
   }
 
@@ -83,7 +85,13 @@ void main() {
     final repo = QueueRepository.instance;
     await repo.bootstrap();
 
-    await repo.upsert(task(id: 'running', status: EncodeStatus.running));
+    await repo.upsert(
+      task(
+        id: 'running',
+        status: EncodeStatus.running,
+        sourceFrameRate: 23.976,
+      ),
+    );
     expect(repo.byId('running')?.status, EncodeStatus.running);
 
     // Simulate app restart after a crash mid-encode.
@@ -94,6 +102,9 @@ void main() {
     expect(restored, isNotNull);
     expect(restored?.status, EncodeStatus.pending);
     expect(restored?.startedAt, isNull);
+    // The probed source framerate must survive the demotion so a resumed
+    // encode does not fall back to a blind 30 fps.
+    expect(restored?.sourceFrameRate, 23.976);
   });
 
   test('clearCompleted removes completed, cancelled, and failed tasks', () async {

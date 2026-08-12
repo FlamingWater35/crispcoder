@@ -209,6 +209,61 @@ void main() {
       );
       expect(args, isNot(contains('-sn')));
     });
+
+    test('burn-in + trim uses output-side seek (no input-side -ss)', () {
+      // Regression guard for the desync hazard: the `subtitles` filter reads
+      // subtitle timestamps from the original timeline, so `-ss` must appear
+      // AFTER `-i` (output-side seek) when burn-in is combined with a trim.
+      final preset = _preset(
+        burnSubtitleIndex: 0,
+        startTime: '00:00:10',
+        endTime: '00:00:20',
+        framerate: null,
+        resolution: null,
+      );
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args, contains('-vf'));
+      expect(args[args.indexOf('-vf') + 1], contains('subtitles='));
+      final iIndex = args.indexOf('-i');
+      final ssIndex = args.indexOf('-ss');
+      // -ss must come after -i (output-side), never before it.
+      expect(ssIndex, greaterThan(iIndex));
+      expect(args[ssIndex + 1], '00:00:10');
+      // -t is still a duration measured from the seek point.
+      expect(args, contains('-t'));
+      expect(args[args.indexOf('-t') + 1], '10.000');
+      // The buggy `-to` must never be emitted.
+      expect(args, isNot(contains('-to')));
+    });
+
+    test('burn-in without an end time still uses output-side seek', () {
+      // The output-side rule applies whenever burn-in is active (the libass
+      // filter always reads the original timeline), regardless of whether a
+      // trim end is set.
+      final preset = _preset(
+        burnSubtitleIndex: 0,
+        startTime: '00:00:05',
+        framerate: null,
+        resolution: null,
+      );
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args, contains('-i'));
+      expect(args, contains('-ss'));
+      expect(args.indexOf('-ss'), greaterThan(args.indexOf('-i')));
+      expect(args[args.indexOf('-ss') + 1], '00:00:05');
+      expect(args, isNot(contains('-t')));
+      expect(args, isNot(contains('-to')));
+    });
   });
 
   group('video copy (passthrough)', () {

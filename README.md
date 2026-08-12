@@ -22,10 +22,10 @@
 <div align="center">
   <table>
     <tr>
-      <td align="center"><img src="assets\screenshots\Screenshot 2026-07-02 094656.png" width="250px" alt="Video Options"><br><sub>Video Options</sub></td>
-      <td align="center"><img src="assets\screenshots\Screenshot 2026-07-02 094834.png" width="250px" alt="Quick Options"><br><sub>Quick Options</sub></td>
-      <td align="center"><img src="assets\screenshots\Screenshot 2026-07-02 094737.png" width="250px" alt="Visual Crop Editor"><br><sub>Visual Crop Editor</sub></td>
-      <td align="center"><img src="assets\screenshots\Screenshot 2026-07-02 094616.png" width="250px" alt="Settings Screen"><br><sub>Settings Screen</sub></td>
+      <td align="center"><img src="assets/screenshots/Screenshot%202026-07-02%20094656.png" width="250px" alt="Video Options"><br><sub>Video Options</sub></td>
+      <td align="center"><img src="assets/screenshots/Screenshot%202026-07-02%20094834.png" width="250px" alt="Quick Options"><br><sub>Quick Options</sub></td>
+      <td align="center"><img src="assets/screenshots/Screenshot%202026-07-02%20094737.png" width="250px" alt="Visual Crop Editor"><br><sub>Visual Crop Editor</sub></td>
+      <td align="center"><img src="assets/screenshots/Screenshot%202026-07-02%20094616.png" width="250px" alt="Settings Screen"><br><sub>Settings Screen</sub></td>
     </tr>
   </table>
 </div>

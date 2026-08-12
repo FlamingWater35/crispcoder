@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pub_semver/pub_semver.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/errors/app_exceptions.dart';
 
 /// Represents the metadata for a fetched GitHub release.
 class UpdateInfo {
@@ -19,7 +20,9 @@ class UpdateInfo {
 /// Handles checking GitHub releases for new versions, downloading APKs, and cleanup.
 /// Throws descriptive exceptions so the UI can surface user-friendly errors.
 class UpdateService {
-  final Dio _dio = Dio();
+  UpdateService({Dio? dio}) : _dio = dio ?? Dio();
+
+  final Dio _dio;
   CancelToken? _cancelToken;
 
   /// Fetches the latest release from GitHub and checks against the current version.
@@ -91,13 +94,15 @@ class UpdateService {
             onProgress(received / total);
           }
         },
-        options: Options(headers: {HttpHeaders.acceptEncodingHeader: '*'}),
+        // NB: no manual Accept-Encoding override — Dio's default encoding
+        // handling is left intact (a manual '*' header can break transparent
+        // gzip/deflate negotiation with some servers).
       );
 
       return savePath;
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {
-        throw Exception('Download cancelled');
+        throw DownloadCancelledException();
       }
       throw Exception('Download failed: ${e.message}');
     } catch (e) {

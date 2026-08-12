@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../core/errors/app_exceptions.dart';
 import '../data/services/device_capability_service.dart';
 import '../data/services/update_service.dart';
 
@@ -108,16 +109,14 @@ class AppUpdateNotifier extends Notifier<AppUpdateState> {
         status: UpdateStatus.readyToInstall,
         downloadedPath: path,
       );
+    } on DownloadCancelledException {
+      // The user explicitly cancelled — revert to updateAvailable state.
+      state = state.copyWith(status: UpdateStatus.updateAvailable);
     } catch (e) {
-      // If the user explicitly cancelled, revert to updateAvailable state
-      if (e.toString().contains('Download cancelled')) {
-        state = state.copyWith(status: UpdateStatus.updateAvailable);
-      } else {
-        state = state.copyWith(
-          status: UpdateStatus.error,
-          errorMessage: e.toString(),
-        );
-      }
+      state = state.copyWith(
+        status: UpdateStatus.error,
+        errorMessage: e.toString(),
+      );
     }
   }
 

@@ -237,6 +237,9 @@ class MainActivity : FlutterActivity() {
             }
             return copyToCache(uri, displayName)
         } catch (e: Exception) {
+            // Log the real cause instead of swallowing it: the Dart side only
+            // sees COPY_FAILED, so Logcat is the only diagnostic trail.
+            Log.w(TAG, "resolveOrCopyPath failed for $uri", e)
             return null
         }
     }
@@ -369,7 +372,19 @@ class MainActivity : FlutterActivity() {
                     Log.e(TAG, "saveToDCIM: cannot create $legacyDir")
                     return null
                 }
-                val dest = File(legacyDir, name)
+                // Avoid silently overwriting an existing same-name file:
+                // append " (n)" like PathHelpers.uniqueOutputPath does on the
+                // Dart side, so two encodes with the same base name both
+                // survive.
+                val base = name.substringBeforeLast('.')
+                val ext = name.substringAfterLast('.', "")
+                var dest = File(legacyDir, name)
+                var attempt = 1
+                while (dest.exists()) {
+                    val suffix = if (ext.isEmpty()) "($attempt)" else "($attempt).$ext"
+                    dest = File(legacyDir, "$base $suffix")
+                    attempt++
+                }
                 FileInputStream(src).use { input ->
                     dest.outputStream().use { output -> input.copyTo(output) }
                 }

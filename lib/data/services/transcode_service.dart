@@ -209,6 +209,12 @@ class TranscodeService {
   ///   divided by 1000 again).
   /// - Trimming uses input-side `-ss` plus `-t <duration>` (never `-to` after
   ///   input-side seeking, which would measure from the seek point).
+  /// - Subtitle burn-in combined with a trim switches to **output-side**
+  ///   seeking: the `subtitles` filter opens the source with its own demuxer
+  ///   and reads subtitle timestamps from the original timeline, while
+  ///   input-side `-ss` resets decoded video timestamps near zero. Mixing the
+  ///   two desynchronizes burned subtitles, so when a burn-in is active the
+  ///   `-ss`/`-t` move after `-i` (output-side seek).
   /// - A null framerate preserves the source timing; `fps=` / `-r` /
   ///   `-fps_mode cfr` are only emitted when the user explicitly set one.
   /// - Video copy never emits filters (subtitle burn-in, crop, scale, fps).
@@ -253,6 +259,25 @@ class TranscodeService {
         args.addAll(['-t', _formatSeconds(trimSeconds)]);
       }
     }
+
+    // Subtitle burn-in + trim must use output-side seeking (see the class
+    // docs above): the libass `subtitles` filter opens the source with its
+    // own demuxer and reads subtitle timestamps from the original timeline,
+    // so an input-side `-ss` (which resets video timestamps near zero)
+    // desynchronizes the burned text. Emit `-i` first, then `-ss`/`-t` as
+    // output options.
+    void addBurnInSeekAndTrim() {
+      args.addAll(['-y', '-i', task.sourcePath]);
+      if (startTime != null && startTime.isNotEmpty) {
+        args.addAll(['-ss', startTime]);
+      }
+      if (trimSeconds != null) {
+        args.addAll(['-t', _formatSeconds(trimSeconds)]);
+      }
+    }
+
+    final bool burnsSubtitle =
+        preset.burnSubtitleIndex != null && preset.burnSubtitleIndex! >= 0;
 
     // --- Audio Extraction: no video, encode audio only ---
     if (preset.outputType == OutputType.audio) {
@@ -398,7 +423,11 @@ class TranscodeService {
       args.addAll(['-hwaccel', 'mediacodec']);
     }
 
-    addInputSeekAndTrim();
+    if (burnsSubtitle) {
+      addBurnInSeekAndTrim();
+    } else {
+      addInputSeekAndTrim();
+    }
 
     // Playback compatibility for video outputs.
     args.addAll([
@@ -688,5 +717,11 @@ class TranscodeService {
 }
 
 final transcodeServiceProvider = Provider<TranscodeService>(
-  (ref) => TranscodeService(ref),
+  (ref) {
+    final service = TranscodeService(ref);
+    // Close the progress stream controller when the provider is disposed so
+    // the broadcast stream is released instead of leaking.
+    ref.onDispose(service.dispose);
+    return service;
+  },
 );

@@ -21,8 +21,13 @@ class PresetRepository {
     // openHiveBox never throws: falls back to an in-memory box if the
     // on-disk box cannot be opened.
     _box = await openHiveBox<TranscodePreset>(AppConstants.boxPresets);
-    if (_box.isEmpty) {
-      for (final p in AppConstants.defaultPresets()) {
+    // Seed any built-in preset that is missing (first run, or a schema
+    // migration that replaced stale built-in definitions). `delete()` blocks
+    // user removal of built-ins, so this never resurrects a user-deleted
+    // preset — and user-created presets are never touched.
+    final existingIds = _box.keys.toSet();
+    for (final p in AppConstants.defaultPresets()) {
+      if (!existingIds.contains(p.id)) {
         await _box.put(p.id, p);
       }
     }

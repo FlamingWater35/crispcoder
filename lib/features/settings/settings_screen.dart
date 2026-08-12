@@ -285,19 +285,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: const Text('Output Directory'),
                     subtitle: Text(
                       settings.outputDirectory ??
-                          'Default (DCIM/Videolation · audio → Music)',
-                      maxLines: 1,
+                          'Default: next to the source video (published to '
+                          'DCIM/Videolation); audio/subtitles → app folder',
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () async {
                       String? selectedDirectory =
                           await FilePicker.getDirectoryPath();
-                      if (selectedDirectory != null) {
-                        await ref
-                            .read(appSettingsProvider.notifier)
-                            .setOutputDirectory(selectedDirectory);
+                      if (selectedDirectory == null) return;
+                      // On modern Android, SAF directory pickers can return a
+                      // `content://` document-tree URI instead of a real
+                      // filesystem path. FFmpeg and dart:io cannot open those,
+                      // so reject them up front with a clear message instead
+                      // of failing late with an opaque encode error.
+                      if (selectedDirectory.startsWith('content://')) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'That folder is not directly accessible by '
+                                'the encoder. Pick a folder via a file '
+                                'manager instead.',
+                              ),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                        return;
                       }
+                      await ref
+                          .read(appSettingsProvider.notifier)
+                          .setOutputDirectory(selectedDirectory);
                     },
                   ),
                   const Divider(height: 1, indent: 16, endIndent: 16),
@@ -305,7 +325,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     leading: const Icon(Icons.cleaning_services_outlined),
                     title: const Text('Reset Output Directory'),
                     subtitle: const Text(
-                      'Save outputs to DCIM/Videolation by default',
+                      'Use the default output locations (source-adjacent '
+                      'videos, app folder for audio/subtitles)',
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     shape: const RoundedRectangleBorder(

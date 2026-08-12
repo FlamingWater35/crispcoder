@@ -38,3 +38,8 @@ class MissingPermissionException extends AppException {
   MissingPermissionException(String permission)
     : super('Required permission not granted: $permission.');
 }
+
+/// Raised when the user cancels an in-progress update download.
+class DownloadCancelledException extends AppException {
+  DownloadCancelledException() : super('Download was cancelled.');
+}

@@ -32,7 +32,9 @@ dependencies:
     sdk: flutter
 
   # Transcoding engine & preview
-  ffmpeg_kit_flutter_new: ^4.6.2
+  # Pinned exactly: ffmpeg_kit_flutter_new is a community fork of the archived
+  # ffmpeg-kit; caret constraints would pull un-reviewed future patches.
+  ffmpeg_kit_flutter_new: 4.6.2
   chewie: ^1.14.1
   video_player: ^2.11.1
 
@@ -42,7 +44,9 @@ dependencies:
   hive_ce_flutter: ^2.3.4
 
   # Platform integration
-  file_picker: ^12.0.0-beta.7
+  # file_picker is pinned exactly: still a beta release, so caret constraints
+  # would pull arbitrary future betas without review.
+  file_picker: 12.0.0-beta.7
   permission_handler: ^13.0.1
   path_provider: ^2.1.6
   path: ^1.9.0
@@ -50,12 +54,10 @@ dependencies:
   share_plus: ^13.2.0
   device_info_plus: ^13.2.0
   wakelock_plus: ^1.6.1
-  gal: ^2.3.2
   logger: ^2.7.0
   package_info_plus: ^10.2.0
 
   # Networking & Updates
-  http: ^1.6.0
   dio: ^5.10.0
   pub_semver: ^2.1.4
   open_filex: ^4.7.0
@@ -78,6 +80,10 @@ dev_dependencies:
   # For mocking platform paths in tests
   path_provider_platform_interface: ^2.1.0
   plugin_platform_interface: ^2.1.0
+  # For stubbing the wakelock platform channel in queue-provider tests
+  wakelock_plus_platform_interface: ^1.4.0
+  # For stubbing the permission-handler platform channel in permission tests
+  permission_handler_platform_interface: ^4.3.0
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

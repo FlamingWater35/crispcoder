@@ -36,9 +36,10 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
 
     ref.listen<EncodeProgress?>(activeEncodeProvider, (_, p) {
       if (p != null) {
-        ForegroundServiceWrapper.instance.updateText(
-          'Progress: ${p.formattedPercent} • ${p.formattedSpeed} • ETA ${p.formattedEta}',
-        );
+        // The foreground-service notification stays minimal ("app is
+        // working"); the rich id-777 progress notification below carries the
+        // details and the Cancel action. Updating both on every tick created
+        // duplicate notification-shade clutter.
         NotificationService.instance.showProgress(
           percent: p.percent.round(),
           content:
@@ -100,156 +101,192 @@ class QueueNotifier extends Notifier<List<EncodeTask>> {
     state = QueueRepository.instance.all;
   }
 
-  /// Starts the next pending task. Idempotent: no-op if a task is running.
-  /// On completion, saves to gallery (only if no custom output dir is set).
-  /// On cancel/failure, deletes the partial output file.
+  /// Starts pending tasks, draining the queue one at a time. Idempotent:
+  /// no-op if a task is already running or nothing is pending. On completion,
+  /// saves to gallery (only if no custom output dir is set). On
+  /// cancel/failure, deletes the partial output file.
+  ///
+  /// Single-flight: `enqueue()` fires `startNext()` without awaiting, and
+  /// `activeEncodeProvider` only becomes non-null once a session is attached —
+  /// which happens after several awaits (notification permission, foreground
+  /// service, FFmpegKit launch). Two near-simultaneous invocations (rapid
+  /// double-enqueue, or enqueue + resume) could both pass the
+  /// `activeEncodeProvider == null` check and both pick the same pending task.
+  /// [_starting] closes that window for the whole drain.
+  ///
+  /// Tasks are processed in a `while` loop (not recursion) so a long queue
+  /// never builds up unbounded call-stack depth.
+  bool _starting = false;
+
   Future<void> startNext() async {
-    EncodeTask? runningTask;
+    if (_starting) return;
+    _starting = true;
     try {
-      if (ref.read(activeEncodeProvider) != null) return;
+      // Drain the queue: process one pending task per iteration. The loop
+      // exits when the queue is empty, a task is already running (e.g. a
+      // concurrent enqueue attached a session mid-drain), or the queue is
+      // paused.
+      while (true) {
+        if (ref.read(activeEncodeProvider) != null) return;
 
-      final next = state.firstWhereOrNull(
-        (t) => t.status == EncodeStatus.pending,
-      );
-      if (next == null) {
-        await WakelockPlus.disable();
-        await ForegroundServiceWrapper.instance.stop();
-        await NotificationService.instance.cancelProgress();
-        return;
-      }
-
-      try {
-        await ref.read(permissionServiceProvider).requireNotifications();
-      } catch (_) {}
-
-      runningTask = next.copyWith(
-        status: EncodeStatus.running,
-        startedAt: DateTime.now(),
-      );
-      await QueueRepository.instance.upsert(runningTask);
-      state = QueueRepository.instance.all;
-
-      await WakelockPlus.enable();
-      await ForegroundServiceWrapper.instance.start(
-        title: 'Transcoding: ${next.displayTitle}',
-        text: 'Starting…',
-      );
-      await NotificationService.instance.showProgress(
-        percent: 0,
-        content: 'Starting…',
-      );
-
-      final session = await ref
-          .read(transcodeServiceProvider)
-          .start(
-            task: runningTask,
-            preset: next.preset,
-            capability: await ref.read(deviceCapabilityProvider.future),
-          );
-      ref.read(activeEncodeProvider.notifier).attach(session);
-      await session.completion;
-
-      // All outputs are published to DCIM/Videolation when no custom output
-      // directory is configured. The platform channel uses MediaStore so
-      // video, audio AND subtitle files land in the same user-visible folder
-      // (audio/subtitle must never go through Gal.putVideo, which would
-      // register them as video/gallery items). The result is persisted on the
-      // task so the queue tile can display an accurate "Saved to DCIM" label
-      // instead of guessing from the output path.
-      final finished = runningTask.copyWith(
-        status: EncodeStatus.completed,
-        finishedAt: DateTime.now(),
-      );
-      final settings = ref.read(appSettingsProvider);
-      var savedToGallery = false;
-      String? publishedUri;
-      if (settings.outputDirectory == null) {
-        // Audio outputs are inserted into MediaStore.Audio.Media, which some
-        // OEMs reject on API 33+ without READ_MEDIA_AUDIO. Request it right
-        // before the publish (lazily, so boot never shows an extra dialog).
-        // Best-effort: a denial only leaves the output in app storage.
-        if (next.preset.outputType == OutputType.audio) {
-          await ref.read(permissionServiceProvider).requireAudioRead();
+        final next = state.firstWhereOrNull(
+          (t) => t.status == EncodeStatus.pending,
+        );
+        if (next == null) {
+          await WakelockPlus.disable();
+          await ForegroundServiceWrapper.instance.stop();
+          await NotificationService.instance.cancelProgress();
+          return;
         }
-        // saveToDCIM returns the MediaStore URI (content://…) on success.
-        // On failure it returns null after logging the real exception.
-        publishedUri = await ref
-            .read(galleryServiceProvider)
-            .saveToDCIM(
-              path: finished.outputPath,
-              outputType: next.preset.outputType,
-              displayName: p.basename(finished.outputPath),
-            );
-        savedToGallery = publishedUri != null;
-        if (publishedUri == null) {
-          ref.read(loggerProvider).w(
-            'saveToDCIM returned null for ${finished.outputPath} — '
-            'the output stays in app-private storage and no DCIM/Videolation '
-            'entry was created. Check Logcat for the underlying exception.',
+
+        EncodeTask? runningTask;
+        try {
+          try {
+            await ref.read(permissionServiceProvider).requireNotifications();
+          } catch (_) {}
+
+          runningTask = next.copyWith(
+            status: EncodeStatus.running,
+            startedAt: DateTime.now(),
           );
-        } else {
-          // The file now lives in MediaStore (DCIM/Videolation). Delete the
-          // private copy so it does not linger in app storage forever — the
-          // "(1)" duplicate names and the storage leak both come from these
-          // undeleted copies colliding with the next encode's uniqueOutputPath.
-          await _deletePartialOutput(finished.outputPath);
-        }
-      }
-      final persisted = finished.copyWith(
-        savedToGallery: savedToGallery,
-        publishedUri: publishedUri,
-      );
-      await QueueRepository.instance.upsert(persisted);
-      await HistoryRepository.instance.add(persisted);
+          await QueueRepository.instance.upsert(runningTask);
+          state = QueueRepository.instance.all;
 
-      await NotificationService.instance.cancelProgress();
-      await NotificationService.instance.showCompleted(
-        id: next.id,
-        title: next.displayTitle,
-      );
-    } on EncodeCancelledException {
-      // Delete partial output so the user doesn't get a corrupt file
-      if (runningTask != null) {
-        await _deletePartialOutput(runningTask.outputPath);
+          await WakelockPlus.enable();
+          await ForegroundServiceWrapper.instance.start(
+            title: 'Transcoding: ${next.displayTitle}',
+            text: 'Starting…',
+          );
+          await NotificationService.instance.showProgress(
+            percent: 0,
+            content: 'Starting…',
+          );
 
-        final existing = QueueRepository.instance.byId(runningTask.id);
-        if (existing != null) {
-          final cancelled = runningTask.copyWith(
-            status: EncodeStatus.cancelled,
+          final session = await ref
+              .read(transcodeServiceProvider)
+              .start(
+                task: runningTask,
+                preset: next.preset,
+                capability: await ref.read(deviceCapabilityProvider.future),
+              );
+          ref.read(activeEncodeProvider.notifier).attach(session);
+          await session.completion;
+
+          // All outputs are published to DCIM/Videolation when no custom
+          // output directory is configured. The platform channel uses
+          // MediaStore so video, audio AND subtitle files land in the same
+          // user-visible folder (audio/subtitle must never go through
+          // Gal.putVideo, which would register them as video/gallery items).
+          // The result is persisted on the task so the queue tile can display
+          // an accurate "Saved to DCIM" label instead of guessing from the
+          // output path.
+          final finished = runningTask.copyWith(
+            status: EncodeStatus.completed,
             finishedAt: DateTime.now(),
           );
-          await QueueRepository.instance.upsert(cancelled);
-          await HistoryRepository.instance.add(cancelled);
+          final settings = ref.read(appSettingsProvider);
+          var savedToGallery = false;
+          String? publishedUri;
+          if (settings.outputDirectory == null) {
+            // Audio outputs are inserted into MediaStore.Audio.Media, which
+            // some OEMs reject on API 33+ without READ_MEDIA_AUDIO. Request it
+            // right before the publish (lazily, so boot never shows an extra
+            // dialog). Best-effort: a denial only leaves the output in app
+            // storage.
+            if (next.preset.outputType == OutputType.audio) {
+              await ref.read(permissionServiceProvider).requireAudioRead();
+            }
+            // saveToDCIM returns the MediaStore URI (content://…) on success.
+            // On failure it returns null after logging the real exception.
+            publishedUri = await ref
+                .read(galleryServiceProvider)
+                .saveToDCIM(
+                  path: finished.outputPath,
+                  outputType: next.preset.outputType,
+                  displayName: p.basename(finished.outputPath),
+                );
+            savedToGallery = publishedUri != null;
+            if (publishedUri == null) {
+              ref.read(loggerProvider).w(
+                'saveToDCIM returned null for ${finished.outputPath} — '
+                'the output stays in app-private storage and no '
+                'DCIM/Videolation entry was created. Check Logcat for the '
+                'underlying exception.',
+              );
+            } else {
+              // The file now lives in MediaStore (DCIM/Videolation). Delete
+              // the private copy so it does not linger in app storage forever
+              // — the "(1)" duplicate names and the storage leak both come
+              // from these undeleted copies colliding with the next encode's
+              // uniqueOutputPath.
+              await _deletePartialOutput(finished.outputPath);
+            }
+          }
+          final persisted = finished.copyWith(
+            savedToGallery: savedToGallery,
+            publishedUri: publishedUri,
+          );
+          await QueueRepository.instance.upsert(persisted);
+          await HistoryRepository.instance.add(persisted);
+
+          await NotificationService.instance.cancelProgress();
+          await NotificationService.instance.showCompleted(
+            id: next.id,
+            title: next.displayTitle,
+            // When a publish was expected (no custom output dir) but failed,
+            // the output stays in app-private storage — surface that instead
+            // of letting the user believe it landed in the gallery.
+            body: (settings.outputDirectory == null && publishedUri == null)
+                ? '${next.displayTitle} finished, but was NOT saved to the '
+                      'gallery — use Share to export it.'
+                : null,
+          );
+        } on EncodeCancelledException {
+          // Delete partial output so the user doesn't get a corrupt file
+          if (runningTask != null) {
+            await _deletePartialOutput(runningTask.outputPath);
+
+            final existing = QueueRepository.instance.byId(runningTask.id);
+            if (existing != null) {
+              final cancelled = runningTask.copyWith(
+                status: EncodeStatus.cancelled,
+                finishedAt: DateTime.now(),
+              );
+              await QueueRepository.instance.upsert(cancelled);
+              await HistoryRepository.instance.add(cancelled);
+            }
+          }
+          await NotificationService.instance.cancelProgress();
+        } catch (e, st) {
+          debugPrint('Error during startNext: $e\n$st');
+          if (runningTask != null) {
+            // Delete partial output from failed encode
+            await _deletePartialOutput(runningTask.outputPath);
+
+            final failed = runningTask.copyWith(
+              status: EncodeStatus.failed,
+              finishedAt: DateTime.now(),
+              errorMessage: e.toString(),
+            );
+            await QueueRepository.instance.upsert(failed);
+            await HistoryRepository.instance.add(failed);
+
+            await NotificationService.instance.cancelProgress();
+            await NotificationService.instance.showFailed(
+              id: runningTask.id,
+              title: runningTask.displayTitle,
+              error: e.toString().split('\n').first,
+            );
+          }
+        } finally {
+          ref.read(activeEncodeProvider.notifier).detach();
+          state = QueueRepository.instance.all;
         }
       }
-      await NotificationService.instance.cancelProgress();
-    } catch (e, st) {
-      debugPrint('Error during startNext: $e\n$st');
-      if (runningTask != null) {
-        // Delete partial output from failed encode
-        await _deletePartialOutput(runningTask.outputPath);
-
-        final failed = runningTask.copyWith(
-          status: EncodeStatus.failed,
-          finishedAt: DateTime.now(),
-          errorMessage: e.toString(),
-        );
-        await QueueRepository.instance.upsert(failed);
-        await HistoryRepository.instance.add(failed);
-
-        await NotificationService.instance.cancelProgress();
-        await NotificationService.instance.showFailed(
-          id: runningTask.id,
-          title: runningTask.displayTitle,
-          error: e.toString().split('\n').first,
-        );
-      }
     } finally {
-      ref.read(activeEncodeProvider.notifier).detach();
-      state = QueueRepository.instance.all;
-      if (state.any((t) => t.status == EncodeStatus.pending)) {
-        await startNext();
-      } else {
+      _starting = false;
+      if (ref.read(activeEncodeProvider) == null &&
+          !state.any((t) => t.status == EncodeStatus.pending)) {
         await WakelockPlus.disable();
         await ForegroundServiceWrapper.instance.stop();
         await NotificationService.instance.cancelProgress();

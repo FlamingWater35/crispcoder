@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:hive_ce/hive_ce.dart';
 
 /// Opens a Hive box that can never leave the caller with an unusable handle.
@@ -21,9 +22,17 @@ import 'package:hive_ce/hive_ce.dart';
 Future<Box<T>> openHiveBox<T>(String name) async {
   try {
     return await Hive.openBox<T>(name);
-  } catch (_) {
+  } catch (e, st) {
     // In-memory fallback via the public API: `bytes:` selects
     // StorageBackendMemory (no disk path), so openBox cannot hit the disk.
+    // Log loudly (with the box name and the real error) so "my queue
+    // disappeared" reports leave a diagnostic trail instead of failing
+    // silently. The in-memory box means writes are lost on process exit.
+    debugPrint(
+      'openHiveBox: box "$name" could not be opened from disk — '
+      'falling back to in-memory storage. Writes will not persist.\n'
+      '$e\n$st',
+    );
     return Hive.openBox<T>(name, bytes: Uint8List(0));
   }
 }

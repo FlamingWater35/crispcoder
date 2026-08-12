@@ -34,6 +34,8 @@ class VideoTab extends ConsumerWidget {
     required this.onFramerateChanged,
     required this.isUsingHw,
     required this.encoderFeedback,
+    required this.twoPass,
+    required this.onTwoPassChanged,
   });
 
   final MediaInfo mediaInfo;
@@ -63,6 +65,11 @@ class VideoTab extends ConsumerWidget {
 
   /// Warning message if software encoding is forced.
   final String encoderFeedback;
+
+  /// Whether generic FFmpeg two-pass (`-pass 1/2`) is enabled. Only valid
+  /// for software H.264 in bitrate mode (see TranscodeService._supportsTwoPass).
+  final bool twoPass;
+  final void Function(bool) onTwoPassChanged;
 
   bool get _isVideoCopy => videoCodec == VideoCodec.copy;
 
@@ -268,6 +275,11 @@ class VideoTab extends ConsumerWidget {
                   ] else ...[
                     const SizedBox(height: 16),
                     TextFormField(
+                      // Key on the mode + value so switching CRF↔Bitrate (or
+                      // choosing a different preset) rebuilds the field with
+                      // the current value — initialValue alone would keep a
+                      // stale string after the widget is reused.
+                      key: ValueKey('bitrate-$useCrf-$videoBitrate'),
                       decoration: const InputDecoration(
                         labelText: 'Video Bitrate (kbps)',
                         border: OutlineInputBorder(),
@@ -277,6 +289,21 @@ class VideoTab extends ConsumerWidget {
                       validator: _validateBitrate,
                       onChanged: onVideoBitrateChanged,
                     ),
+                    // Two-pass only works for software H.264 in bitrate mode.
+                    // The tab is only reached in software mode here
+                    // (!isUsingHw), so gate purely on the codec.
+                    if (videoCodec == VideoCodec.h264) ...[
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Two-pass encoding'),
+                        subtitle: const Text(
+                          'Better quality per bitrate (slower: encodes twice)',
+                        ),
+                        value: twoPass,
+                        onChanged: onTwoPassChanged,
+                      ),
+                    ],
                   ],
                 ],
               ],
