@@ -23,6 +23,8 @@ class QuickEditTab extends StatelessWidget {
     required this.subtitleTracks,
     required this.burnSubtitleIndex,
     required this.onSubtitleChanged,
+    required this.subtitleFormat,
+    required this.onSubtitleFormatChanged,
     required this.onTrimPreview,
   });
 
@@ -42,6 +44,8 @@ class QuickEditTab extends StatelessWidget {
   final List<SubtitleTrack> subtitleTracks;
   final int? burnSubtitleIndex;
   final void Function(int?) onSubtitleChanged;
+  final SubtitleFormat subtitleFormat;
+  final void Function(SubtitleFormat) onSubtitleFormatChanged;
   final VoidCallback onTrimPreview;
 
   String? _validateTime(String? value) {
@@ -247,6 +251,21 @@ class QuickEditTab extends StatelessWidget {
                 onSelected: (_) => onSubtitleChanged(sub.subtitleStreamIndex),
               ),
           ],
+        ),
+        const SizedBox(height: 16),
+        Text('Subtitle Format', style: labelStyle),
+        const SizedBox(height: 8),
+        // Output format chips: SRT (plain text) or ASS (styling support).
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          children: SubtitleFormat.values.map((f) {
+            return ChoiceChip(
+              label: Text(f.name.toUpperCase()),
+              selected: subtitleFormat == f,
+              onSelected: (_) => onSubtitleFormatChanged(f),
+            );
+          }).toList(),
         ),
       ]);
     }

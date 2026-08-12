@@ -42,6 +42,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   MediaInfo? _mediaInfo;
   bool _probing = false;
 
+  /// Original filename reported by the file picker (keeps the real video
+  /// name even when the platform returns a numeric cached path on Android).
+  String? _pickedFileName;
+
   /// True while the platform file picker is open (between pressing the
   /// source card and a file being chosen or the picker being dismissed).
   bool _picking = false;
@@ -70,6 +74,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   bool _removeAudio = false;
   int? _burnSubtitleIndex;
+  SubtitleFormat _subtitleFormat = SubtitleFormat.srt;
   final _startController = TextEditingController();
   final _endController = TextEditingController();
 
@@ -155,6 +160,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     _removeAudio = false;
     _burnSubtitleIndex = null;
+    _subtitleFormat = SubtitleFormat.srt;
     _startController.clear();
     if (_mediaInfo!.duration != null) {
       _endController.text = _formatDuration(_mediaInfo!.duration!);
@@ -191,6 +197,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     _removeAudio = preset.removeAudio;
     _burnSubtitleIndex = preset.burnSubtitleIndex;
+    _subtitleFormat = preset.subtitleFormat;
     _startController.text = preset.startTime ?? '';
     _endController.text = preset.endTime ?? '';
 
@@ -370,6 +377,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final tabs = <Tab>[];
     final tabViews = <Widget>[];
 
+    // Only presets matching the current output mode are relevant. The
+    // built-in presets are all video presets; offering them in audio or
+    // subtitle extraction mode is confusing and applying one would silently
+    // flip the mode back to video. Audio/subtitle modes fall back to
+    // "Custom (Match Source)".
+    final modePresets = _outputType == OutputType.video
+        ? presets
+        : presets
+              .where((p) => p.outputType == _outputType)
+              .toList();
+
     if (_outputType == OutputType.video) {
       tabs.addAll([
         const Tab(
@@ -395,7 +413,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ]);
       tabViews.addAll([
         QuickEditTab(
-          presets: presets,
+          presets: modePresets,
           selectedPresetId: _selectedPresetId,
           onPresetChanged: (v) {
             if (v == null) return;
@@ -404,7 +422,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               if (v == 'custom') {
                 _applySourceDefaults();
               } else {
-                final preset = presets.firstWhere((p) => p.id == v);
+                final preset = modePresets.firstWhere((p) => p.id == v);
                 _applyPreset(preset);
               }
             });
@@ -419,6 +437,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           subtitleTracks: mediaInfo.subtitleTracks,
           burnSubtitleIndex: _burnSubtitleIndex,
           onSubtitleChanged: (v) => setState(() => _burnSubtitleIndex = v),
+          subtitleFormat: _subtitleFormat,
+          onSubtitleFormatChanged: (v) =>
+              setState(() => _subtitleFormat = v),
           onTrimPreview: _openTrimPreview,
         ),
         VideoTab(
@@ -497,7 +518,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       ]);
       tabViews.addAll([
         QuickEditTab(
-          presets: presets,
+          presets: modePresets,
           selectedPresetId: _selectedPresetId,
           onPresetChanged: (v) {
             if (v == null) return;
@@ -506,7 +527,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               if (v == 'custom') {
                 _applySourceDefaults();
               } else {
-                final preset = presets.firstWhere((p) => p.id == v);
+                final preset = modePresets.firstWhere((p) => p.id == v);
                 _applyPreset(preset);
               }
             });
@@ -521,6 +542,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           subtitleTracks: mediaInfo.subtitleTracks,
           burnSubtitleIndex: _burnSubtitleIndex,
           onSubtitleChanged: (v) => setState(() => _burnSubtitleIndex = v),
+          subtitleFormat: _subtitleFormat,
+          onSubtitleFormatChanged: (v) =>
+              setState(() => _subtitleFormat = v),
           onTrimPreview: _openTrimPreview,
         ),
         AudioTab(
@@ -543,7 +567,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       );
       tabViews.add(
         QuickEditTab(
-          presets: presets,
+          presets: modePresets,
           selectedPresetId: _selectedPresetId,
           onPresetChanged: (v) {
             if (v == null) return;
@@ -552,7 +576,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               if (v == 'custom') {
                 _applySourceDefaults();
               } else {
-                final preset = presets.firstWhere((p) => p.id == v);
+                final preset = modePresets.firstWhere((p) => p.id == v);
                 _applyPreset(preset);
               }
             });
@@ -567,6 +591,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           subtitleTracks: mediaInfo.subtitleTracks,
           burnSubtitleIndex: _burnSubtitleIndex,
           onSubtitleChanged: (v) => setState(() => _burnSubtitleIndex = v),
+          subtitleFormat: _subtitleFormat,
+          onSubtitleFormatChanged: (v) =>
+              setState(() => _subtitleFormat = v),
           onTrimPreview: _openTrimPreview,
         ),
       );
@@ -649,6 +676,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         setState(() => _picking = false);
         return;
       }
+
+      // The picker's PlatformFile keeps the real file name (e.g.
+      // "MyVideo.mp4") even though `path` on Android may point at a cached
+      // copy with a numeric name. Capture it for output naming.
+      _pickedFileName = result.name;
 
       final path = result.path;
       if (path == null) {
@@ -774,6 +806,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       isBuiltIn: false,
       removeAudio: _removeAudio,
       burnSubtitleIndex: _burnSubtitleIndex,
+      subtitleFormat: _subtitleFormat,
       startTime: _startController.text.isEmpty ? null : _startController.text,
       endTime: _endController.text.isEmpty ? null : _endController.text,
       cropLeft: _isVideoCopy ? null : _cropLeft,
@@ -838,15 +871,19 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
     final preset = _buildPreset();
 
+    // Retain the ORIGINAL video filename (from the picker's PlatformFile,
+    // which keeps the real name even when the cached path is numeric) with
+    // an '_encoded' suffix, e.g. "MyVideo_encoded.mp4" instead of "29.mp4".
+    final sourceFileName = _pickedFileName ?? p.basename(sourcePath);
     final baseName = PathHelpers.sanitizeFileName(
-      p.basenameWithoutExtension(sourcePath),
+      p.basenameWithoutExtension(sourceFileName),
     );
 
     final outDir = settings.outputDirectory ?? p.dirname(sourcePath);
 
     final outputPath = PathHelpers.uniqueOutputPath(
       directory: outDir,
-      baseName: '${baseName}_crispcoder',
+      baseName: '${baseName}_encoded',
       extension: preset.fileExtension,
     );
 

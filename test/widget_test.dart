@@ -111,7 +111,7 @@ void main() {
     );
 
     // Tapping opens the licenses page (showLicensePage).
-    await tester.tap(find.text('A transcoder powered by FFmpeg'));
+    await tester.tap(find.text('CrispCoder'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 

@@ -325,6 +325,92 @@ void main() {
     });
   });
 
+  group('audio/subtitle extraction muxer', () {
+    test('audio extraction forces a muxer matching the extension', () {
+      final args = service.buildCommandArgs(
+        task: _task(),
+        preset: _preset().copyWith(outputType: OutputType.audio),
+        cap: _cap,
+      );
+
+      expect(args.last, '/tmp/output.mp4');
+      expect(args[args.length - 2], 'ipod');
+      expect(args[args.length - 3], '-f');
+      expect(args, contains('-vn'));
+      expect(args, contains('-sn'));
+      expect(args, isNot(contains('-c:v')));
+    });
+
+    test('audio aac uses the ipod (m4a) muxer, not the video mp4 muxer', () {
+      final preset = _preset().copyWith(outputType: OutputType.audio);
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args, contains('-f'));
+      expect(args[args.indexOf('-f') + 1], 'ipod');
+      // Regression guard: generic video mp4 muxer must not be chosen.
+      expect(args, isNot(contains('mp4')));
+    });
+
+    test('audio mp3 forces the mp3 muxer', () {
+      final preset = _preset(
+        audioCodec: AudioCodec.mp3,
+      ).copyWith(outputType: OutputType.audio);
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args, contains('-f'));
+      expect(args[args.indexOf('-f') + 1], 'mp3');
+      expect(args[args.indexOf('-c:a') + 1], 'libmp3lame');
+    });
+
+    test('subtitle extraction forces the srt muxer', () {
+      final preset = _preset(
+        burnSubtitleIndex: 1,
+      ).copyWith(outputType: OutputType.subtitle);
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args, contains('-f'));
+      expect(args[args.indexOf('-f') + 1], 'srt');
+      expect(args, contains('-map'));
+      expect(args[args.indexOf('-map') + 1], '0:s:1');
+      expect(args, contains('-c:s'));
+      expect(args[args.indexOf('-c:s') + 1], 'srt');
+      expect(args.last, '/tmp/output.mp4');
+    });
+
+    test('subtitle ass format uses the ass codec and muxer', () {
+      final preset = _preset(
+        burnSubtitleIndex: 1,
+      ).copyWith(
+        outputType: OutputType.subtitle,
+        subtitleFormat: SubtitleFormat.ass,
+      );
+      final args = service.buildCommandArgs(
+        task: _task(preset: preset),
+        preset: preset,
+        cap: _cap,
+      );
+
+      expect(args, contains('-f'));
+      expect(args[args.indexOf('-f') + 1], 'ass');
+      expect(args[args.indexOf('-c:s') + 1], 'ass');
+      expect(args[args.indexOf('-map') + 1], '0:s:1');
+      expect(args, contains('-an'));
+      expect(args, contains('-vn'));
+    });
+  });
+
   group('compatibility flags', () {
     test('encoded video gets pix_fmt yuv420p + negative ts + mux queue', () {
       final args = service.buildCommandArgs(

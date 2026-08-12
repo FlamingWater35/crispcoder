@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:hive_ce/hive_ce.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/hive_box_util.dart';
 import '../models/encode_task.dart';
 
 /// Persisted queue store, restored on app startup.
@@ -23,7 +24,10 @@ class QueueRepository {
     if (_initialized) {
       return;
     }
-    _box = await Hive.openBox<EncodeTask>(AppConstants.boxQueue);
+    // openHiveBox never throws: it falls back to an in-memory box if the
+    // on-disk box cannot be opened, so `_box` is always assigned and the
+    // queue provider can never hit LateInitializationError.
+    _box = await openHiveBox<EncodeTask>(AppConstants.boxQueue);
 
     // Crash recovery: demote tasks that were running when the app died and
     // drop their partial output files. Each record is guarded individually —

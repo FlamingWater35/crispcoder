@@ -1,6 +1,7 @@
 import 'package:hive_ce/hive_ce.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/hive_box_util.dart';
 import '../models/encode_task.dart';
 
 /// Append-only history of finished encodes (success or failure).
@@ -15,7 +16,7 @@ class HistoryRepository {
     if (_initialized) {
       return;
     }
-    _box = await Hive.openBox<EncodeTask>(AppConstants.boxHistory);
+    _box = await openHiveBox<EncodeTask>(AppConstants.boxHistory);
     _initialized = true;
   }
 

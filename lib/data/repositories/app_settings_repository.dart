@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hive_ce/hive_ce.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/hive_box_util.dart';
 import '../models/transcode_preset.dart';
 
 /// Hive-backed store for user-level app settings (theme, encoder preference).
@@ -16,12 +17,9 @@ class AppSettingsRepository {
   /// Opens the settings box; safe to call multiple times.
   Future<void> bootstrap() async {
     if (_initialized) return;
-    try {
-      _box = await Hive.openBox(AppConstants.boxSettings);
-    } catch (_) {
-      // Re-attempt open; Hive will provide an in-memory box on failure
-      _box = await Hive.openBox(AppConstants.boxSettings);
-    }
+    // openHiveBox never throws: falls back to an in-memory box if the
+    // on-disk box cannot be opened.
+    _box = await openHiveBox(AppConstants.boxSettings);
     _initialized = true;
   }
 

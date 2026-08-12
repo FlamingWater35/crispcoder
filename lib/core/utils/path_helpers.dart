@@ -71,6 +71,46 @@ class PathHelpers {
     return false;
   }
 
+  /// Deletes processed (encoded) output files from the app data folder.
+  ///
+  /// When no custom output directory is configured, encode outputs are
+  /// written into the app's cache directory (same base as [clearAppCache],
+  /// e.g. the `file_picker` copy folder and any leftover FFmpeg artifacts).
+  /// This removes those processed files while keeping transient picker cache
+  /// entries that are still referenced by the queue/history (via [protect]).
+  ///
+  /// Best-effort: individual failures (locked files) are ignored.
+  static Future<void> deleteProcessedFilesFromAppData({
+    Set<String> protect = const {},
+  }) async {
+    try {
+      final base = await getTemporaryDirectory();
+      if (!base.existsSync()) return;
+      for (final entity in base.listSync()) {
+        if (_containsProtected(entity, protect)) continue;
+        // Only delete regular files and the file_picker cache subfolder,
+        // where picker copies of processed sources land. Directories such
+        // as `passes` (FFmpeg two-pass logs) are not "processed files".
+        if (entity is File) {
+          try {
+            await entity.delete();
+          } catch (_) {
+            // Ignore locked/in-use files
+          }
+        } else if (entity is Directory &&
+            p.basename(entity.path).toLowerCase() == 'file_picker') {
+          try {
+            await entity.delete(recursive: true);
+          } catch (_) {
+            // Ignore locked/in-use files
+          }
+        }
+      }
+    } catch (_) {
+      // Best-effort cleanup
+    }
+  }
+
   /// Builds a non-colliding output filename by appending (1), (2), etc.
   static String uniqueOutputPath({
     required String directory,

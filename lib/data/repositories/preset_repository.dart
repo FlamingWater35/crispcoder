@@ -1,11 +1,12 @@
 import 'package:hive_ce/hive_ce.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/hive_box_util.dart';
 import '../models/transcode_preset.dart';
 
 /// Hive-backed CRUD for transcode presets.
 /// Bootstraps built-in defaults on first run; never throws on Hive failure
-/// (falls back to in-memory list).
+/// (falls back to an in-memory box).
 class PresetRepository {
   PresetRepository._();
   static final PresetRepository instance = PresetRepository._();
@@ -17,16 +18,13 @@ class PresetRepository {
     if (_initialized) {
       return;
     }
-    try {
-      _box = await Hive.openBox<TranscodePreset>(AppConstants.boxPresets);
-      if (_box.isEmpty) {
-        for (final p in AppConstants.defaultPresets()) {
-          await _box.put(p.id, p);
-        }
+    // openHiveBox never throws: falls back to an in-memory box if the
+    // on-disk box cannot be opened.
+    _box = await openHiveBox<TranscodePreset>(AppConstants.boxPresets);
+    if (_box.isEmpty) {
+      for (final p in AppConstants.defaultPresets()) {
+        await _box.put(p.id, p);
       }
-    } catch (_) {
-      // Re-open with in-memory fallback if disk is corrupted
-      _box = await Hive.openBox<TranscodePreset>(AppConstants.boxPresets);
     }
     _initialized = true;
   }

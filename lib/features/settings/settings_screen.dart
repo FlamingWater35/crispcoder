@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../core/utils/path_helpers.dart';
 import '../../core/utils/snackbar_helper.dart';
 import '../../data/models/transcode_preset.dart';
 import '../../data/services/permission_service.dart';
@@ -33,6 +34,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
     setState(() => _currentVersion = info.version);
+  }
+
+  /// Shows a confirmation dialog, then runs [action] and reports the result.
+  Future<void> _confirmAndRun({
+    required String title,
+    required String message,
+    required Future<void> Function() action,
+    required String successTitle,
+    required String successMessage,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await action();
+    if (!mounted) return;
+    AppSnackbar.show(
+      context: context,
+      title: successTitle,
+      message: successMessage,
+      contentType: ContentType.success,
+    );
   }
 
   @override
@@ -309,11 +347,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: const Text('Disable battery optimizations'),
                     subtitle: const Text('Recommended for long encodes'),
                     trailing: const Icon(Icons.chevron_right),
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.vertical(
-                        bottom: Radius.circular(16),
-                      ),
-                    ),
                     onTap: () async {
                       final granted = await ref
                           .read(permissionServiceProvider)
@@ -331,6 +364,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         );
                       }
                     },
+                  ),
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                  ListTile(
+                    leading: const Icon(Icons.cleaning_services_outlined),
+                    title: const Text('Clear cache'),
+                    subtitle: const Text(
+                      'Remove temporary FFmpeg files and two-pass logs',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _confirmAndRun(
+                      title: 'Clear cache?',
+                      message:
+                          'This removes temporary FFmpeg files, two-pass logs '
+                          'and other cached data. Saved outputs are kept.',
+                      action: PathHelpers.clearAppCache,
+                      successTitle: 'Cache cleared',
+                      successMessage: 'Temporary files removed.',
+                    ),
+                  ),
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                  ListTile(
+                    leading: const Icon(Icons.delete_forever_outlined),
+                    title: const Text(
+                      'Delete processed files from app data folder',
+                    ),
+                    subtitle: const Text(
+                      'Remove encoded outputs saved to the app data folder',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(16),
+                      ),
+                    ),
+                    onTap: () => _confirmAndRun(
+                      title: 'Delete processed files?',
+                      message:
+                          'This deletes encoded output files stored in the '
+                          'app data folder. Files in a custom output '
+                          'directory are not affected.',
+                      action: PathHelpers.deleteProcessedFilesFromAppData,
+                      successTitle: 'Processed files deleted',
+                      successMessage: 'Output files removed from app data.',
+                    ),
                   ),
                 ],
               ),

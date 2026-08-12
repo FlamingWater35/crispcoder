@@ -70,4 +70,44 @@ void main() {
 
     expect(protected.existsSync(), isTrue);
   });
+
+  test('deleteProcessedFilesFromAppData removes files but keeps dirs', () async {
+    final outFile = File(p.join(tempDir.path, 'video_encoded.mp4'));
+    final passesDir = Directory(p.join(tempDir.path, 'passes'));
+    final passLog = File(p.join(passesDir.path, 'log.txt'));
+    await outFile.create(recursive: true);
+    await passLog.create(recursive: true);
+
+    await PathHelpers.deleteProcessedFilesFromAppData();
+
+    expect(outFile.existsSync(), isFalse);
+    // The passes dir (FFmpeg logs) is not a "processed file" — it survives.
+    expect(passLog.existsSync(), isTrue);
+  });
+
+  test('deleteProcessedFilesFromAppData removes the file_picker cache folder',
+      () async {
+    final picked = File(
+      p.join(tempDir.path, 'file_picker', '29'),
+    );
+    await picked.create(recursive: true);
+
+    await PathHelpers.deleteProcessedFilesFromAppData();
+
+    expect(picked.existsSync(), isFalse);
+  });
+
+  test('deleteProcessedFilesFromAppData keeps protected entries', () async {
+    final protected = File(p.join(tempDir.path, 'file_picker', 'keep.mp4'));
+    final other = File(p.join(tempDir.path, 'remove.mp4'));
+    await protected.create(recursive: true);
+    await other.create(recursive: true);
+
+    await PathHelpers.deleteProcessedFilesFromAppData(
+      protect: {protected.path},
+    );
+
+    expect(protected.existsSync(), isTrue);
+    expect(other.existsSync(), isFalse);
+  });
 }

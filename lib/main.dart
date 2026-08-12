@@ -57,13 +57,32 @@ Future<void> main() async {
       await Hive.deleteBoxFromDisk(AppConstants.boxPresets);
       await settingsBox.put(AppConstants.keySchemaVersion, 6);
     }
+  } catch (e, st) {
+    debugPrint('Settings migration error: $e\n$st');
+  }
 
-    // Bootstrap persistence (queue/history survive restarts).
-    await PresetRepository.instance.bootstrap();
-    await QueueRepository.instance.bootstrap();
-    await HistoryRepository.instance.bootstrap();
-    await AppSettingsRepository.instance.bootstrap();
+  // Bootstrap persistence (queue/history survive restarts). Each repository
+  // is bootstrapped independently so a failure in one (e.g. a corrupt box)
+  // can never skip the others or leave a repository uninitialized — the
+  // repositories themselves fall back to in-memory storage via openHiveBox.
+  await _bootstrapRepository(
+    'presets',
+    () => PresetRepository.instance.bootstrap(),
+  );
+  await _bootstrapRepository(
+    'queue',
+    () => QueueRepository.instance.bootstrap(),
+  );
+  await _bootstrapRepository(
+    'history',
+    () => HistoryRepository.instance.bootstrap(),
+  );
+  await _bootstrapRepository(
+    'settings',
+    () => AppSettingsRepository.instance.bootstrap(),
+  );
 
+  try {
     await ForegroundServiceWrapper.instance.init();
     await NotificationService.instance.init();
 
@@ -73,4 +92,17 @@ Future<void> main() async {
   }
 
   runApp(const ProviderScope(child: CrispCoderApp()));
+}
+
+/// Runs a repository bootstrap, logging instead of throwing so one failing
+/// repository can never take down app startup.
+Future<void> _bootstrapRepository(
+  String name,
+  Future<void> Function() bootstrap,
+) async {
+  try {
+    await bootstrap();
+  } catch (e, st) {
+    debugPrint('$name repository bootstrap error: $e\n$st');
+  }
 }

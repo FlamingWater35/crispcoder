@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:crispcoder/core/constants/app_constants.dart';
+import 'package:crispcoder/core/utils/hive_box_util.dart';
 import 'package:crispcoder/data/models/encode_task.dart';
 import 'package:crispcoder/data/models/transcode_preset.dart';
 import 'package:crispcoder/data/repositories/queue_repository.dart';
@@ -138,5 +139,27 @@ void main() {
 
     final all = repo.all;
     expect(all, isEmpty); // corrupt file → nothing recoverable, no crash
+  });
+
+  test('openHiveBox falls back to in-memory when the disk box cannot open',
+      () async {
+    // Make the box file unopenable by replacing it with a directory of the
+    // same name. Hive's crash recovery can repair a truncated file, but it
+    // cannot open a path that is a directory — this forces the in-memory
+    // fallback path in openHiveBox.
+    final settingsPath = p.join(tempDir.path, '${AppConstants.boxSettings}.hive');
+    final blocker = Directory(settingsPath);
+    await blocker.create(recursive: true);
+
+    // The helper must not throw and must return a usable box.
+    final box = await openHiveBox<EncodeTask>(AppConstants.boxSettings);
+    expect(box, isNotNull);
+    await box.put('k', task(id: 'k'));
+    expect(box.get('k'), isNotNull);
+
+    // Close cleanly so tearDownAll's Hive.deleteFromDisk does not hang.
+    await box.close();
+    // Clean up the blocker directory so tearDownAll can delete the temp dir.
+    await blocker.delete(recursive: true);
   });
 }

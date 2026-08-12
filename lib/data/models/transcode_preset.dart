@@ -15,6 +15,10 @@ enum EncoderPreference { hardware, software, auto }
 /// Defines the media type to extract/transcode.
 enum OutputType { video, audio, subtitle }
 
+/// Output format for extracted subtitles. SRT is plain text; ASS supports
+/// styling/positioning and is the format many fansubbed tracks ship in.
+enum SubtitleFormat { srt, ass }
+
 /// A problem with the codec/container combination that would produce an
 /// unplayable file, drop a stream, or silently mux an invalid format.
 enum CompatibilityIssue {
@@ -74,6 +78,10 @@ class TranscodePreset {
   final String? startTime;
   final String? endTime;
 
+  /// Output format for subtitle extraction (SRT or ASS). Only used when
+  /// [outputType] == [OutputType.subtitle].
+  final SubtitleFormat subtitleFormat;
+
   // Visual Crop Fields (Fractions from 0.0 to 1.0)
   final double? cropLeft;
   final double? cropTop;
@@ -113,6 +121,7 @@ class TranscodePreset {
     this.burnSubtitleIndex,
     this.startTime,
     this.endTime,
+    this.subtitleFormat = SubtitleFormat.srt,
     this.cropLeft,
     this.cropTop,
     this.cropWidth,
@@ -145,6 +154,7 @@ class TranscodePreset {
     int? burnSubtitleIndex,
     String? startTime,
     String? endTime,
+    SubtitleFormat? subtitleFormat,
     double? cropLeft,
     double? cropTop,
     double? cropWidth,
@@ -176,6 +186,7 @@ class TranscodePreset {
       burnSubtitleIndex: burnSubtitleIndex ?? this.burnSubtitleIndex,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
+      subtitleFormat: subtitleFormat ?? this.subtitleFormat,
       cropLeft: cropLeft ?? this.cropLeft,
       cropTop: cropTop ?? this.cropTop,
       cropWidth: cropWidth ?? this.cropWidth,
@@ -212,7 +223,12 @@ class TranscodePreset {
         },
       };
     }
-    if (outputType == OutputType.subtitle) return 'srt';
+    if (outputType == OutputType.subtitle) {
+      return switch (subtitleFormat) {
+        SubtitleFormat.srt => 'srt',
+        SubtitleFormat.ass => 'ass',
+      };
+    }
     return switch (container) {
       ContainerFormat.mp4 => 'mp4',
       ContainerFormat.mkv => 'mkv',
@@ -339,6 +355,12 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
       sourceVideoCodec: r.availableBytes > 0 && r.readByte() == 1
           ? r.readString()
           : null,
+      // Optional field appended at the very end; absent in records written
+      // by older app versions, so only read it when bytes remain.
+      subtitleFormat: r.availableBytes > 0
+          ? SubtitleFormat.values[
+              r.readByte() % SubtitleFormat.values.length]
+          : SubtitleFormat.srt,
     );
   }
 
@@ -374,6 +396,7 @@ class TranscodePresetAdapter extends TypeAdapter<TranscodePreset> {
     _writeNullableDouble(w, p.cropHeight);
     _writeNullableString(w, p.sourceAudioCodec);
     _writeNullableString(w, p.sourceVideoCodec);
+    w.writeByte(p.subtitleFormat.index);
   }
 
   static void _writeNullableInt(BinaryWriter w, int? v) {

@@ -130,6 +130,18 @@ class TranscodeService {
     };
   }
 
+  /// Maps an audio output extension to the FFmpeg muxer that produces it.
+  /// `.m4a` is written by the `ipod` muxer (the audio-only MP4 variant) —
+  /// never the generic video `mp4` muxer; `.mka` by `matroska`. Everything
+  /// else (mp3/opus/ac3/flac/ogg) has a muxer named after the extension.
+  String _resolveAudioMuxer(String extension) {
+    return switch (extension) {
+      'm4a' => 'ipod',
+      'mka' => 'matroska',
+      _ => extension,
+    };
+  }
+
   // --- Bitrate helpers (all in kbps) --------------------------------------
 
   /// Rough CRF → target bitrate (kbps) used as a fallback for hardware
@@ -251,6 +263,14 @@ class TranscodeService {
       } else {
         args.addAll(['-c:a', 'copy']);
       }
+      // Force the muxer matching the output extension. Without -f, FFmpeg
+      // auto-guesses a container from the output filename; `.m4a` is
+      // recognized but the generic `mp4` muxer is chosen for it, and for
+      // some codecs the guess can produce a video container. Forcing the
+      // correct muxer guarantees the file is the audio container the
+      // extension promises.
+      final ext = preset.fileExtension;
+      args.addAll(['-f', _resolveAudioMuxer(ext)]);
       args.add(task.outputPath);
       return args;
     }
@@ -259,7 +279,21 @@ class TranscodeService {
     if (preset.outputType == OutputType.subtitle) {
       addInputSeekAndTrim();
       final subIdx = preset.burnSubtitleIndex ?? 0;
-      args.addAll(['-map', '0:s:$subIdx', '-an', '-vn', '-c:s', 'srt']);
+      // Codec and muxer follow the selected output format: `srt` for SRT,
+      // `ass` for ASS (SSA is re-encoded to ASS via libass-compatible ass
+      // encoder). Forcing the muxer guarantees the output file matches the
+      // extension the preset promises.
+      final subExt = preset.fileExtension;
+      args.addAll([
+        '-map',
+        '0:s:$subIdx',
+        '-an',
+        '-vn',
+        '-c:s',
+        subExt,
+        '-f',
+        subExt,
+      ]);
       args.add(task.outputPath);
       return args;
     }

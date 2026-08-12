@@ -92,6 +92,36 @@ void main() {
     });
   });
 
+  group('subtitle file extension', () {
+    test('srt by default and when srt format selected', () {
+      expect(
+        _base().copyWith(outputType: OutputType.subtitle).fileExtension,
+        'srt',
+      );
+      expect(
+        _base()
+            .copyWith(
+              outputType: OutputType.subtitle,
+              subtitleFormat: SubtitleFormat.srt,
+            )
+            .fileExtension,
+        'srt',
+      );
+    });
+
+    test('ass when ass format selected', () {
+      expect(
+        _base()
+            .copyWith(
+              outputType: OutputType.subtitle,
+              subtitleFormat: SubtitleFormat.ass,
+            )
+            .fileExtension,
+        'ass',
+      );
+    });
+  });
+
   group('compatibilityIssues', () {
     test('valid mp4 h264+aac has no issues', () {
       expect(_base().compatibilityIssues(), isEmpty);
